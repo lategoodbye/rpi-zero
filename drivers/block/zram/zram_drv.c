@@ -98,10 +98,17 @@ static void zram_set_obj_size(struct zram_meta *meta,
 	meta->table[index].value = (flags << ZRAM_FLAG_SHIFT) | size;
 }
 
+#if PAGE_SIZE != 4096
 static inline bool is_partial_io(struct bio_vec *bvec)
 {
 	return bvec->bv_len != PAGE_SIZE;
 }
+#else
+static inline bool is_partial_io(struct bio_vec *bvec)
+{
+	return false;
+}
+#endif
 
 static void zram_revalidate_disk(struct zram *zram)
 {
@@ -544,8 +551,8 @@ static int zram_decompress_page(struct zram *zram, char *mem, u32 index)
 	return 0;
 }
 
-static int zram_bvec_read(struct zram *zram, struct bio_vec *bvec,
-			  u32 index, int offset)
+static int zram_bvec_partial_read(struct zram *zram, struct bio_vec *bvec,
+				u32 index, int offset)
 {
 	int ret;
 	struct page *page;
@@ -562,81 +569,87 @@ static int zram_bvec_read(struct zram *zram, struct bio_vec *bvec,
 	}
 	bit_spin_unlock(ZRAM_ACCESS, &meta->table[index].value);
 
-	if (is_partial_io(bvec))
-		/* Use  a temporary buffer to decompress the page */
-		uncmem = kmalloc(PAGE_SIZE, GFP_NOIO);
-
-	user_mem = kmap_atomic(page);
-	if (!is_partial_io(bvec))
-		uncmem = user_mem;
-
+	/* Use  a temporary buffer to decompress the page */
+	uncmem = kmalloc(PAGE_SIZE, GFP_NOIO);
 	if (!uncmem) {
 		pr_err("Unable to allocate temp memory\n");
-		ret = -ENOMEM;
-		goto out_cleanup;
+		return -ENOMEM;
 	}
 
+	user_mem = kmap_atomic(page);
 	ret = zram_decompress_page(zram, uncmem, index);
-	/* Should NEVER happen. Return bio error if it does. */
 	if (unlikely(ret))
 		goto out_cleanup;
 
-	if (is_partial_io(bvec))
-		memcpy(user_mem + bvec->bv_offset, uncmem + offset,
+	memcpy(user_mem + bvec->bv_offset, uncmem + offset,
 				bvec->bv_len);
-
 	flush_dcache_page(page);
 	ret = 0;
 out_cleanup:
 	kunmap_atomic(user_mem);
-	if (is_partial_io(bvec))
-		kfree(uncmem);
+	kfree(uncmem);
 	return ret;
 }
 
-static int zram_bvec_write(struct zram *zram, struct bio_vec *bvec, u32 index,
-			   int offset)
+static int zram_bvec_read(struct zram *zram, struct bio_vec *bvec,
+			  u32 index, int offset)
 {
-	int ret = 0;
+	int ret;
+	struct page *page;
+	unsigned char *user_mem;
+	struct zram_meta *meta = zram->meta;
+	page = bvec->bv_page;
+
+	bit_spin_lock(ZRAM_ACCESS, &meta->table[index].value);
+	if (unlikely(!meta->table[index].handle) ||
+			zram_test_flag(meta, index, ZRAM_SAME)) {
+		bit_spin_unlock(ZRAM_ACCESS, &meta->table[index].value);
+		handle_same_page(bvec, meta->table[index].element);
+		return 0;
+	}
+	bit_spin_unlock(ZRAM_ACCESS, &meta->table[index].value);
+
+	user_mem = kmap_atomic(page);
+	ret = zram_decompress_page(zram, user_mem, index);
+	kunmap_atomic(user_mem);
+
+	flush_dcache_page(page);
+	return ret;
+}
+
+static int zram_bvec_partial_write(struct zram *zram, struct bio_vec *bvec,
+				u32 index, int offset)
+{
+	int ret = -ENOMEM;
 	unsigned int clen;
 	unsigned long handle = 0;
 	struct page *page;
 	unsigned char *user_mem, *cmem, *src, *uncmem = NULL;
 	struct zram_meta *meta = zram->meta;
-	struct zcomp_strm *zstrm = NULL;
+	struct zcomp_strm *zstrm;
 	unsigned long alloced_pages;
 	unsigned long element;
 
 	page = bvec->bv_page;
-	if (is_partial_io(bvec)) {
-		/*
-		 * This is a partial IO. We need to read the full page
-		 * before to write the changes.
-		 */
-		uncmem = kmalloc(PAGE_SIZE, GFP_NOIO);
-		if (!uncmem) {
-			ret = -ENOMEM;
-			goto out;
-		}
-		ret = zram_decompress_page(zram, uncmem, index);
-		if (ret)
-			goto out;
-	}
+	/*
+	 * This is a partial IO. We need to read the full page
+	 * before to write the changes.
+	 */
+	uncmem = kmalloc(PAGE_SIZE, GFP_NOIO);
+	if (!uncmem)
+		return ret;
+
+	ret = zram_decompress_page(zram, uncmem, index);
+	if (ret)
+		goto out;
 
 compress_again:
 	user_mem = kmap_atomic(page);
-	if (is_partial_io(bvec)) {
-		memcpy(uncmem + offset, user_mem + bvec->bv_offset,
-		       bvec->bv_len);
-		kunmap_atomic(user_mem);
-		user_mem = NULL;
-	} else {
-		uncmem = user_mem;
-	}
+	memcpy(uncmem + offset, user_mem + bvec->bv_offset,
+	       bvec->bv_len);
+	kunmap_atomic(user_mem);
 
 	if (page_same_filled(uncmem, &element)) {
-		if (user_mem)
-			kunmap_atomic(user_mem);
 		/* Free memory associated with this sector now. */
 		bit_spin_lock(ZRAM_ACCESS, &meta->table[index].value);
 		zram_free_page(zram, index);
@@ -651,13 +664,8 @@ compress_again:
 
 	zstrm = zcomp_stream_get(zram->comp);
 	ret = zcomp_compress(zstrm, uncmem, &clen);
-	if (!is_partial_io(bvec)) {
-		kunmap_atomic(user_mem);
-		user_mem = NULL;
-		uncmem = NULL;
-	}
-
 	if (unlikely(ret)) {
+		zcomp_stream_put(zram->comp);
 		pr_err("Compression failed! err=%d\n", ret);
 		goto out;
 	}
@@ -665,8 +673,7 @@ compress_again:
 	src = zstrm->buffer;
 	if (unlikely(clen > max_zpage_size)) {
 		clen = PAGE_SIZE;
-		if (is_partial_io(bvec))
-			src = uncmem;
+		src = uncmem;
 	}
 
 	/*
@@ -690,8 +697,6 @@ compress_again:
 				__GFP_MOVABLE);
 	if (!handle) {
 		zcomp_stream_put(zram->comp);
-		zstrm = NULL;
-
 		atomic64_inc(&zram->stats.writestall);
 
 		handle = zs_malloc(meta->mem_pool, clen,
@@ -702,7 +707,6 @@ compress_again:
 
 		pr_err("Error allocating memory for compressed page: %u, size=%u\n",
 			index, clen);
-		ret = -ENOMEM;
 		goto out;
 	}
 
@@ -711,22 +715,14 @@ compress_again:
 
 	if (zram->limit_pages && alloced_pages > zram->limit_pages) {
 		zs_free(meta->mem_pool, handle);
-		ret = -ENOMEM;
+		zcomp_stream_put(zram->comp);
 		goto out;
 	}
 
 	cmem = zs_map_object(meta->mem_pool, handle, ZS_MM_WO);
 
-	if ((clen == PAGE_SIZE) && !is_partial_io(bvec)) {
-		src = kmap_atomic(page);
-		copy_page(cmem, src);
-		kunmap_atomic(src);
-	} else {
-		memcpy(cmem, src, clen);
-	}
-
+	memcpy(cmem, src, clen);
 	zcomp_stream_put(zram->comp);
-	zstrm = NULL;
 	zs_unmap_object(meta->mem_pool, handle);
 
 	/*
@@ -735,7 +731,6 @@ compress_again:
 	 */
 	bit_spin_lock(ZRAM_ACCESS, &meta->table[index].value);
 	zram_free_page(zram, index);
-
 	meta->table[index].handle = handle;
 	zram_set_obj_size(meta, index, clen);
 	bit_spin_unlock(ZRAM_ACCESS, &meta->table[index].value);
@@ -743,12 +738,124 @@ compress_again:
 	/* Update stats */
 	atomic64_add(clen, &zram->stats.compr_data_size);
 	atomic64_inc(&zram->stats.pages_stored);
+	ret = 0;
 out:
-	if (zstrm)
-		zcomp_stream_put(zram->comp);
-	if (is_partial_io(bvec))
-		kfree(uncmem);
+	kfree(uncmem);
 	return ret;
+}
+
+static int zram_bvec_write(struct zram *zram, struct bio_vec *bvec, u32 index,
+			   int offset)
+{
+	int ret;
+	unsigned int clen;
+	unsigned long handle = 0;
+	struct page *page;
+	void *user_mem, *cmem;
+	struct zram_meta *meta = zram->meta;
+	struct zcomp_strm *zstrm;
+	unsigned long alloced_pages;
+	unsigned long element;
+
+	page = bvec->bv_page;
+compress_again:
+	user_mem = kmap_atomic(page);
+	if (page_same_filled(user_mem, &element)) {
+		kunmap_atomic(user_mem);
+
+		/* Free memory associated with this sector now. */
+		bit_spin_lock(ZRAM_ACCESS, &meta->table[index].value);
+		zram_free_page(zram, index);
+		zram_set_flag(meta, index, ZRAM_SAME);
+		zram_set_element(meta, index, element);
+		bit_spin_unlock(ZRAM_ACCESS, &meta->table[index].value);
+
+		atomic64_inc(&zram->stats.same_pages);
+		return 0;
+	}
+
+	zstrm = zcomp_stream_get(zram->comp);
+	ret = zcomp_compress(zstrm, user_mem, &clen);
+	kunmap_atomic(user_mem);
+
+	if (unlikely(ret)) {
+		pr_err("Compression failed! err=%d\n", ret);
+		zcomp_stream_put(zram->comp);
+		return ret;
+	}
+
+	if (unlikely(clen > max_zpage_size))
+		clen = PAGE_SIZE;
+
+	/*
+	 * handle allocation has 2 paths:
+	 * a) fast path is executed with preemption disabled (for
+	 *  per-cpu streams) and has __GFP_DIRECT_RECLAIM bit clear,
+	 *  since we can't sleep;
+	 * b) slow path enables preemption and attempts to allocate
+	 *  the page with __GFP_DIRECT_RECLAIM bit set. we have to
+	 *  put per-cpu compression stream and, thus, to re-do
+	 *  the compression once handle is allocated.
+	 *
+	 * if we have a 'non-null' handle here then we are coming
+	 * from the slow path and handle has already been allocated.
+	 */
+	if (!handle)
+		handle = zs_malloc(meta->mem_pool, clen,
+				__GFP_KSWAPD_RECLAIM |
+				__GFP_NOWARN |
+				__GFP_HIGHMEM |
+				__GFP_MOVABLE);
+	if (!handle) {
+		zcomp_stream_put(zram->comp);
+		atomic64_inc(&zram->stats.writestall);
+		handle = zs_malloc(meta->mem_pool, clen,
+				GFP_NOIO | __GFP_HIGHMEM |
+				__GFP_MOVABLE);
+		if (handle)
+			goto compress_again;
+
+		pr_err("Error allocating memory for compressed page: %u, size=%u\n",
+			index, clen);
+		return -ENOMEM;
+	}
+
+	alloced_pages = zs_get_total_pages(meta->mem_pool);
+	update_used_max(zram, alloced_pages);
+
+	if (zram->limit_pages && alloced_pages > zram->limit_pages) {
+		zs_free(meta->mem_pool, handle);
+		zcomp_stream_put(zram->comp);
+		return -ENOMEM;
+	}
+
+	cmem = zs_map_object(meta->mem_pool, handle, ZS_MM_WO);
+
+	if (clen == PAGE_SIZE) {
+		user_mem = kmap_atomic(page);
+		copy_page(cmem, user_mem);
+		kunmap_atomic(user_mem);
+	} else {
+		memcpy(cmem, zstrm->buffer, clen);
+	}
+
+	zcomp_stream_put(zram->comp);
+	zs_unmap_object(meta->mem_pool, handle);
+
+	/*
+	 * Free memory associated with this sector
+	 * before overwriting unused sectors.
+	 */
+	bit_spin_lock(ZRAM_ACCESS, &meta->table[index].value);
+	zram_free_page(zram, index);
+	meta->table[index].handle = handle;
+	zram_set_obj_size(meta, index, clen);
+	bit_spin_unlock(ZRAM_ACCESS, &meta->table[index].value);
+
+	/* Update stats */
+	atomic64_add(clen, &zram->stats.compr_data_size);
+	atomic64_inc(&zram->stats.pages_stored);
+	return 0;
 }
 
 /*
@@ -802,10 +909,16 @@ static int zram_bvec_rw(struct zram *zram, struct bio_vec *bvec, u32 index,
 
 	if (!is_write) {
 		atomic64_inc(&zram->stats.num_reads);
-		ret = zram_bvec_read(zram, bvec, index, offset);
+		if (!is_partial_io(bvec))
+			ret = zram_bvec_read(zram, bvec, index, offset);
+		else
+			ret = zram_bvec_partial_read(zram, bvec, index, offset);
 	} else {
 		atomic64_inc(&zram->stats.num_writes);
-		ret = zram_bvec_write(zram, bvec, index, offset);
+		if (!is_partial_io(bvec))
+			ret = zram_bvec_write(zram, bvec, index, offset);
+		else
+			ret = zram_bvec_partial_write(zram, bvec, index, offset);
 	}
 
 	generic_end_io_acct(rw_acct, &zram->disk->part0, start_time);
