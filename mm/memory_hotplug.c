@@ -353,7 +353,7 @@ static void fix_zone_id(struct zone *zone, unsigned long start_pfn,
 static int __ref ensure_zone_is_initialized(struct zone *zone,
 			unsigned long start_pfn, unsigned long num_pages)
 {
-	if (!zone_is_initialized(zone))
+	if (zone_is_empty(zone))
 		return init_currently_empty_zone(zone, start_pfn, num_pages);
 
 	return 0;
@@ -1056,7 +1056,7 @@ bool zone_can_shift(unsigned long pfn, unsigned long nr_pages,
 
 		/* no zones in use between current zone and target */
 		for (i = idx + 1; i < target; i++)
-			if (zone_is_initialized(zone - idx + i))
+			if (!zone_is_empty(zone - idx + i))
 				return false;
 	}
 
@@ -1067,7 +1067,7 @@ bool zone_can_shift(unsigned long pfn, unsigned long nr_pages,
 
 		/* no zones in use between current zone and target */
 		for (i = target + 1; i < idx; i++)
-			if (zone_is_initialized(zone - idx + i))
+			if (!zone_is_empty(zone - idx + i))
 				return false;
 	}
 

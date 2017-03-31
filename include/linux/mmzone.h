@@ -442,8 +442,6 @@ struct zone {
 	seqlock_t		span_seqlock;
 #endif
 
-	int initialized;
-
 	/* Write-intensive fields used from the page allocator */
 	ZONE_PADDING(_pad1_)
 
@@ -520,14 +518,15 @@ static inline bool zone_spans_pfn(const struct zone *zone, unsigned long pfn)
 	return zone->zone_start_pfn <= pfn && pfn < zone_end_pfn(zone);
 }
 
-static inline bool zone_is_initialized(struct zone *zone)
-{
-	return zone->initialized;
-}
-
 static inline bool zone_is_empty(struct zone *zone)
 {
 	return zone->spanned_pages == 0;
+}
+
+static inline bool zone_spans_range(const struct zone *zone, unsigned long start_pfn,
+		unsigned long nr_pages)
+{
+	return zone->zone_start_pfn <= start_pfn && start_pfn + nr_pages < zone_end_pfn(zone);
 }
 
 /*

@@ -796,7 +796,7 @@ static inline void __free_one_page(struct page *page,
 
 	max_order = min_t(unsigned int, MAX_ORDER, pageblock_order + 1);
 
-	VM_BUG_ON(!zone_is_initialized(zone));
+	VM_BUG_ON(zone_is_empty(zone));
 	VM_BUG_ON_PAGE(page->flags & PAGE_FLAGS_CHECK_AT_PREP, page);
 
 	VM_BUG_ON(migratetype == -1);
@@ -5534,9 +5534,6 @@ int __meminit init_currently_empty_zone(struct zone *zone,
 			zone_start_pfn, (zone_start_pfn + size));
 
 	zone_init_free_lists(zone);
-	zone->initialized = 1;
-
-	return 0;
 }
 
 #ifdef CONFIG_HAVE_MEMBLOCK_NODE_MAP
