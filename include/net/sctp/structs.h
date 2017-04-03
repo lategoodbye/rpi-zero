@@ -377,7 +377,8 @@ typedef struct sctp_sender_hb_info {
 	__u64 hb_nonce;
 } sctp_sender_hb_info_t;
 
-struct sctp_stream *sctp_stream_new(__u16 incnt, __u16 outcnt, gfp_t gfp);
+int sctp_stream_new(struct sctp_association *asoc, gfp_t gfp);
+int sctp_stream_init(struct sctp_association *asoc, gfp_t gfp);
 void sctp_stream_free(struct sctp_stream *stream);
 void sctp_stream_clear(struct sctp_stream *stream);
 
@@ -499,7 +500,6 @@ struct sctp_datamsg {
 	/* Did the messenge fail to send? */
 	int send_error;
 	u8 send_failed:1,
-	   force_delay:1,
 	   can_delay;	    /* should this message be Nagle delayed */
 };
 
@@ -1878,6 +1878,7 @@ struct sctp_association {
 
 	__u8 need_ecne:1,	/* Need to send an ECNE Chunk? */
 	     temp:1,		/* Is it a temporary association? */
+	     force_delay:1,
 	     prsctp_enable:1,
 	     reconf_enable:1;
 
