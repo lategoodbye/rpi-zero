@@ -276,9 +276,9 @@ static int vxlan_fdb_info(struct sk_buff *skb, struct vxlan_dev *vxlan,
 	send_eth = send_ip = true;
 
 	if (type == RTM_GETNEIGH) {
-		ndm->ndm_family	= AF_INET;
 		send_ip = !vxlan_addr_any(&rdst->remote_ip);
 		send_eth = !is_zero_ether_addr(fdb->eth_addr);
+		ndm->ndm_family = send_ip ? rdst->remote_ip.sa.sa_family : AF_INET;
 	} else
 		ndm->ndm_family	= AF_BRIDGE;
 	ndm->ndm_state = fdb->state;
@@ -2322,6 +2322,9 @@ static void vxlan_cleanup(unsigned long arg)
 			if (f->state & (NUD_PERMANENT | NUD_NOARP))
 				continue;
 
+			if (f->flags & NTF_EXT_LEARNED)
+				continue;
+
 			timeout = f->used + vxlan->cfg.age_interval * HZ;
 			if (time_before_eq(timeout, jiffies)) {
 				netdev_dbg(vxlan->dev,
@@ -2921,6 +2924,11 @@ static int vxlan_dev_configure(struct net *src_net, struct net_device *dev,
 		   vxlan_addr_multicast(&dst->remote_ip)) {
 		pr_info("multicast destination requires interface to be specified\n");
 		return -EINVAL;
+	}
+
+	if (lowerdev) {
+		dev->gso_max_size = lowerdev->gso_max_size;
+		dev->gso_max_segs = lowerdev->gso_max_segs;
 	}
 
 	if (conf->mtu) {
