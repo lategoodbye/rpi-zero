@@ -1,0 +1,13 @@
+Importing jdelvare-hwmon based on 08d27eb2066622cd659b91d877d0406ebd651225
+Unchanged quilt series jdelvare-hwmon
+Importing dmi based on 4.11-rc5
+$ git clone -s -l -n -q . ../quilt-tmp
+$ cd ../quilt-tmp
+$ git reset --hard a71c9a1c779f2499fb2afc0553e543f18aff6edf
+HEAD is now at a71c9a1c779f Linux 4.11-rc5
+$ git am --patch-format=mbox ../quilt/dmi/dmi-look-for-SM3-first.patch
+Applying: firmware: dmi_scan: Look for SMBIOS 3 entry point first
+$ cd /home/sfr/kernels/next/next
+$ git fetch -f ../quilt-tmp master:dmi/master
+From ../quilt-tmp
+   0c744ea4f77d..b3398adc0da6  master     -> dmi/master
