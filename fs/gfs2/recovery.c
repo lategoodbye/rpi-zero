@@ -287,6 +287,7 @@ int gfs2_find_jhead(struct gfs2_jdesc *jd, struct gfs2_log_header_host *head)
 			blk_1 = blk_m;
 		else
 			blk_2 = blk_m;
+		cond_resched();
 	}
 
 	error = jhead_scan(jd, &lh_1);

@@ -566,6 +566,7 @@ static int buf_lo_scan_elements(struct gfs2_jdesc *jd, unsigned int start,
 			break;
 
 		jd->jd_replayed_blocks++;
+		cond_resched();
 	}
 
 	return error;
@@ -722,6 +723,7 @@ static int revoke_lo_scan_elements(struct gfs2_jdesc *jd, unsigned int start,
 		brelse(bh);
 		offset = sizeof(struct gfs2_meta_header);
 		first = 0;
+		cond_resched();
 	}
 
 	return 0;
@@ -802,6 +804,7 @@ static int databuf_lo_scan_elements(struct gfs2_jdesc *jd, unsigned int start,
 		brelse(bh_ip);
 
 		jd->jd_replayed_blocks++;
+		cond_resched();
 	}
 
 	return error;
