@@ -584,6 +584,10 @@
 		};
 	};
 
+	__overrides__ {
+		cache_line_size = <&vchiq>, "cache-line-size:0";
+	};
+
 	clocks {
 		compatible = "simple-bus";
 		#address-cells = <1>;
