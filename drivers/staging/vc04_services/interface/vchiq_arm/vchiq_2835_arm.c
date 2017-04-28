@@ -595,6 +595,7 @@ free_pagelist(struct vchiq_pagelist_info *pagelistinfo,
 			(pagelist->type - PAGELIST_READ_WITH_FRAGMENTS) *
 			g_fragments_size;
 		int head_bytes, tail_bytes;
+		void *addr;
 
 		head_bytes = (g_cache_line_size - pagelist->offset) &
 			(g_cache_line_size - 1);
@@ -605,18 +606,24 @@ free_pagelist(struct vchiq_pagelist_info *pagelistinfo,
 			if (head_bytes > actual)
 				head_bytes = actual;
 
-			memcpy((char *)page_address(pages[0]) +
-				pagelist->offset,
-				fragments,
-				head_bytes);
+			addr = page_address(pages[0]);
+			if (addr)
+				memcpy((char *)addr + pagelist->offset, fragments,
+				       head_bytes);
+			else
+				WARN(1, "page address of first page is NULL");
 		}
 		if ((actual >= 0) && (head_bytes < actual) &&
 			(tail_bytes != 0)) {
-			memcpy((char *)page_address(pages[num_pages - 1]) +
-				((pagelist->offset + actual) &
-				(PAGE_SIZE - 1) & ~(g_cache_line_size - 1)),
-				fragments + g_cache_line_size,
-				tail_bytes);
+
+			addr = page_address(pages[num_pages - 1]);
+			if (addr)
+				memcpy((char *)addr + ((pagelist->offset + actual) &
+				       (PAGE_SIZE - 1) & ~(g_cache_line_size - 1)),
+				       fragments + g_cache_line_size,
+				       tail_bytes);
+			else
+				WARN(1, "page address of last page is NULL");
 		}
 
 		down(&g_free_fragments_mutex);
