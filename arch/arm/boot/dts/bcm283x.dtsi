@@ -83,6 +83,13 @@
 			#interrupt-cells = <2>;
 		};
 
+		vchiq: vchiq@7e00b840 {
+			compatible = "brcm,bcm2835-vchiq";
+			reg = <0x7e00b840 0xf>;
+			interrupts = <0 2>;
+			cache-line-size = <32>;
+		};
+
 		watchdog@7e100000 {
 			compatible = "brcm,bcm2835-pm-wdt";
 			reg = <0x7e100000 0x28>;
@@ -575,6 +582,10 @@
 		vc4: gpu {
 			compatible = "brcm,bcm2835-vc4";
 		};
+	};
+
+	__overrides__ {
+		cache_line_size = <&vchiq>, "cache-line-size:0";
 	};
 
 	clocks {
