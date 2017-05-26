@@ -620,7 +620,7 @@ static void bcm2835_finish_request(struct bcm2835_host *host)
 	host->dma_chan = NULL;
 
 	if (terminate_chan) {
-		int err = dmaengine_terminate_all(terminate_chan);
+		int err = dmaengine_terminate_async(terminate_chan);
 
 		if (err)
 			dev_err(&host->pdev->dev,
