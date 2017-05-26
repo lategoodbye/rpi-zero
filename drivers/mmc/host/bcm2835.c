@@ -839,7 +839,10 @@ static void bcm2835_timeout(struct work_struct *work)
 
 		if (host->data) {
 			host->data->error = -ETIMEDOUT;
-			bcm2835_finish_data(host);
+			if (host->dma_chan)
+				dmaengine_terminate_async(host->dma_chan);
+			else
+				bcm2835_finish_data(host);
 		} else {
 			if (host->cmd)
 				host->cmd->error = -ETIMEDOUT;
