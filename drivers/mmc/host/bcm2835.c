@@ -1055,9 +1055,11 @@ static void bcm2835_dma_complete_work(struct work_struct *work)
 {
 	struct bcm2835_host *host =
 		container_of(work, struct bcm2835_host, dma_work);
-	struct mmc_data *data = host->data;
+	struct mmc_data *data;
 
 	mutex_lock(&host->mutex);
+
+	data = host->data;
 
 	if (host->dma_chan) {
 		dma_unmap_sg(host->dma_chan->device->dev,
