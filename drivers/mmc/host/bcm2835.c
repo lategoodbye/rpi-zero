@@ -705,13 +705,13 @@ static void bcm2835_transfer_complete(struct bcm2835_host *host)
 	WARN_ON(!host->data_complete);
 
 	data = host->data;
-	host->data = NULL;
 
 	/* Need to send CMD12 if -
 	 * a) open-ended multiblock transfer (no CMD23)
 	 * b) error in multiblock transfer
 	 */
 	if (host->mrq->stop && (data->error || !host->use_sbc)) {
+		host->data = NULL;
 		if (bcm2835_send_command(host, host->mrq->stop)) {
 			/* No busy, so poll for completion */
 			if (!host->use_busy)
