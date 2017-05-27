@@ -233,7 +233,7 @@ static void bcm2835_spi_dma_done(void *data)
 	 * is called the tx-dma must have finished - can't get to this
 	 * situation otherwise...
 	 */
-	dmaengine_terminate_all(master->dma_tx);
+	dmaengine_terminate_async(master->dma_tx);
 
 	/* mark as no longer pending */
 	bs->dma_pending = 0;
@@ -341,7 +341,7 @@ static int bcm2835_spi_transfer_one_dma(struct spi_master *master,
 	ret = bcm2835_spi_prepare_sg(master, tfr, false);
 	if (ret) {
 		/* need to reset on errors */
-		dmaengine_terminate_all(master->dma_tx);
+		dmaengine_terminate_sync(master->dma_tx);
 		bcm2835_spi_reset_hw(master);
 		return ret;
 	}
@@ -404,12 +404,12 @@ static bool bcm2835_spi_can_dma(struct spi_master *master,
 static void bcm2835_dma_release(struct spi_master *master)
 {
 	if (master->dma_tx) {
-		dmaengine_terminate_all(master->dma_tx);
+		dmaengine_terminate_sync(master->dma_tx);
 		dma_release_channel(master->dma_tx);
 		master->dma_tx = NULL;
 	}
 	if (master->dma_rx) {
-		dmaengine_terminate_all(master->dma_rx);
+		dmaengine_terminate_sync(master->dma_rx);
 		dma_release_channel(master->dma_rx);
 		master->dma_rx = NULL;
 	}
@@ -618,8 +618,8 @@ static void bcm2835_spi_handle_err(struct spi_master *master,
 
 	/* if an error occurred and we have an active dma, then terminate */
 	if (bs->dma_pending) {
-		dmaengine_terminate_all(master->dma_tx);
-		dmaengine_terminate_all(master->dma_rx);
+		dmaengine_terminate_async(master->dma_tx);
+		dmaengine_terminate_async(master->dma_rx);
 		bs->dma_pending = 0;
 	}
 	/* and reset */
