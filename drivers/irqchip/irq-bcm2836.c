@@ -24,6 +24,7 @@
 #include <asm/exception.h>
 
 struct bcm2836_arm_irqchip_intc {
+	raw_spinlock_t lock;
 	struct irq_domain *domain;
 	void __iomem *base;
 };
@@ -92,10 +93,29 @@ static void bcm2836_arm_irqchip_unmask_gpu_irq(struct irq_data *d)
 {
 }
 
+static int bcm2836_arm_irqchip_set_gpu_affinity(struct irq_data *d,
+						const struct cpumask *dest,
+						bool force)
+{
+	unsigned int first_cpu = cpumask_any_and(dest, cpu_online_mask);
+	unsigned long flags;
+	u32 val;
+
+	raw_spin_lock_irqsave(&intc.lock, flags);
+	/* Only change the GPU IRQ and preserve GPU FIQ */
+	val = readl(intc.base + LOCAL_GPU_ROUTING) & ~0x3;
+	writel(val | first_cpu, intc.base + LOCAL_GPU_ROUTING);
+	raw_spin_unlock_irqrestore(&intc.lock, flags);
+	irq_data_update_effective_affinity(d, cpumask_of(first_cpu));
+
+	return 0;
+}
+
 static struct irq_chip bcm2836_arm_irqchip_gpu = {
 	.name		= "bcm2836-gpu",
 	.irq_mask	= bcm2836_arm_irqchip_mask_gpu_irq,
 	.irq_unmask	= bcm2836_arm_irqchip_unmask_gpu_irq,
+	.irq_set_affinity	= bcm2836_arm_irqchip_set_gpu_affinity,
 };
 
 static int bcm2836_map(struct irq_domain *d, unsigned int irq,
@@ -232,6 +252,8 @@ static int __init bcm2836_arm_irqchip_l1_intc_of_init(struct device_node *node,
 	if (!intc.base) {
 		panic("%pOF: unable to map local interrupt registers\n", node);
 	}
+
+	raw_spin_lock_init(&intc.lock);
 
 	bcm2835_init_local_timer_frequency();
 
