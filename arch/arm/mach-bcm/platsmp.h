@@ -8,6 +8,15 @@
  *
  */
 
+/* Not parked - initally online */
+#define CPU_REPARK_STATUS_NOT_PARKED	0
+/* Parked - MMU disabled */
+#define CPU_REPARK_STATUS_NOMMU		1
+/* Parked - MMU enabled */
+#define CPU_REPARK_STATUS_MMU		2
+/* Not parked - online */
+#define CPU_REPARK_STATUS_ONLINE	3
+
 #define BCM2836_REPARK_PHYS_BASE_OFFSET		0
 #define BCM2836_REPARK_VIRT_BASE_OFFSET 	4
 #define BCM2836_REPARK_CPU_STATUS_OFFSET	8

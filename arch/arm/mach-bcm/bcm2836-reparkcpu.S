@@ -16,15 +16,6 @@
 
 #include "platsmp.h"
 
-/* Not parked - initally online */
-#define CPU_REPARK_STATUS_NOT_PARKED	0
-/* Parked - MMU disabled */
-#define CPU_REPARK_STATUS_NOMMU		1
-/* Parked - MMU enabled */
-#define CPU_REPARK_STATUS_MMU		2
-/* Not parked - online */
-#define CPU_REPARK_STATUS_ONLINE	3
-
 	.text
 
 ENTRY(bcm2836_repark_loop)

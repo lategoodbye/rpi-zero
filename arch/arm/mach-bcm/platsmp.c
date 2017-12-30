@@ -296,10 +296,12 @@ out:
 
 static void __init bcm2836_perpare_cpus(unsigned int max_cpus)
 {
+	phys_addr_t repark_loop_phy;
 	struct device_node *dn;
 	struct resource res;
 	static void __iomem *base;
 	char *name;
+	int cpu;
 
 	name = "brcm,bcm2836-l1-intc";
 	dn = of_find_compatible_node(NULL, NULL, name);
@@ -328,6 +330,19 @@ static void __init bcm2836_perpare_cpus(unsigned int max_cpus)
 	sync_cache_w(&bcm2836_repark_data);
 	bcm2836_intc_base = base;
 
+	repark_loop_phy = __pa_symbol(bcm2836_repark_loop);
+	BUG_ON(repark_loop_phy > (phys_addr_t)U32_MAX);
+
+	for_each_present_cpu(cpu) {
+		if (cpu >= max_cpus) {
+			writel(repark_loop_phy,
+			       base + LOCAL_MAILBOX3_SET0 + 16 * cpu);
+
+			dsb(sy);
+			sev();
+		}
+	}
+
 free_dn:
 	of_node_put(dn);
 }
@@ -335,6 +350,7 @@ free_dn:
 static int bcm2836_boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
 	phys_addr_t secondary_startup_phy;
+	int cpu_status;
 
 	if (!bcm2836_intc_base)
 		return -ENODEV;
@@ -342,8 +358,23 @@ static int bcm2836_boot_secondary(unsigned int cpu, struct task_struct *idle)
 	secondary_startup_phy = __pa_symbol(secondary_startup);
 	BUG_ON(secondary_startup_phy > (phys_addr_t)U32_MAX);
 
-	writel(secondary_startup_phy,
-	       bcm2836_intc_base + LOCAL_MAILBOX3_SET0 + 16 * cpu);
+	cpu_status = bcm2836_repark_data.cpu_status[cpu];
+	smp_rmb();
+
+	switch (cpu_status) {
+	case CPU_REPARK_STATUS_NOT_PARKED:
+	case CPU_REPARK_STATUS_NOMMU:
+		writel(secondary_startup_phy,
+		       bcm2836_intc_base + LOCAL_MAILBOX3_SET0 + 16 * cpu);
+		break;
+	case CPU_REPARK_STATUS_MMU:
+		writel(secondary_startup,
+		       bcm2836_intc_base + LOCAL_MAILBOX3_SET0 + 16 * cpu);
+		break;
+	default:
+		pr_err("bcm2836: CPU%d already online\n", cpu);
+		return -EBUSY;
+	};
 
 	dsb(sy);
 	sev();
