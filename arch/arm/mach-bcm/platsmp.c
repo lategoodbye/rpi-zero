@@ -30,6 +30,8 @@
 #include <asm/smp_plat.h>
 #include <asm/smp_scu.h>
 
+#include "platsmp.h"
+
 /* Size of mapped Cortex A9 SCU address space */
 #define CORTEX_A9_SCU_SIZE	0x58
 
@@ -39,6 +41,10 @@
 /* Name of device node property defining secondary boot register location */
 #define OF_SECONDARY_BOOT	"secondary-boot-reg"
 #define MPIDR_CPUID_BITMASK	0x3
+
+
+struct bcm2836_arm_cpu_repark_data bcm2836_repark_data;
+static void __iomem *bcm2836_intc_base;
 
 /*
  * Enable the Cortex A9 Snoop Control Unit
@@ -288,36 +294,77 @@ out:
 	return ret;
 }
 
-static int bcm2836_boot_secondary(unsigned int cpu, struct task_struct *idle)
+static void __init bcm2836_perpare_cpus(unsigned int max_cpus)
 {
-	void __iomem *intc_base;
 	struct device_node *dn;
+	struct resource res;
+	static void __iomem *base;
 	char *name;
 
 	name = "brcm,bcm2836-l1-intc";
 	dn = of_find_compatible_node(NULL, NULL, name);
 	if (!dn) {
 		pr_err("unable to find intc node\n");
-		return -ENODEV;
+		return;
 	}
 
-	intc_base = of_iomap(dn, 0);
-	of_node_put(dn);
-
-	if (!intc_base) {
+	base = of_iomap(dn, 0);
+	if (!base) {
 		pr_err("unable to remap intc base register\n");
-		return -ENOMEM;
+		goto free_dn;
 	}
 
-	writel(virt_to_phys(secondary_startup),
-	       intc_base + LOCAL_MAILBOX3_SET0 + 16 * cpu);
+	if (of_address_to_resource(dn, 0, &res)) {
+		pr_err("unable to get intc base phys\n");
+		iounmap(base);
+		goto free_dn;
+	}
+
+	bcm2836_repark_data.mailbox_rdclr_phys_base =
+		res.start + LOCAL_MAILBOX3_CLR0;
+	bcm2836_repark_data.mailbox_rdclr_virt_base =
+		base + LOCAL_MAILBOX3_CLR0;
+
+	sync_cache_w(&bcm2836_repark_data);
+	bcm2836_intc_base = base;
+
+free_dn:
+	of_node_put(dn);
+}
+
+static int bcm2836_boot_secondary(unsigned int cpu, struct task_struct *idle)
+{
+	phys_addr_t secondary_startup_phy;
+
+	if (!bcm2836_intc_base)
+		return -ENODEV;
+
+	secondary_startup_phy = __pa_symbol(secondary_startup);
+	BUG_ON(secondary_startup_phy > (phys_addr_t)U32_MAX);
+
+	writel(secondary_startup_phy,
+	       bcm2836_intc_base + LOCAL_MAILBOX3_SET0 + 16 * cpu);
 
 	dsb(sy);
 	sev();
 
-	iounmap(intc_base);
-
 	return 0;
+}
+
+static bool bcm2836_cpu_can_disable(unsigned int cpunr)
+{
+	if (cpunr == 0)
+		return false;
+
+	if (!bcm2836_repark_data.mailbox_rdclr_phys_base)
+		return false;
+
+	return true;
+}
+
+static void bcm2836_cpu_die(unsigned int cpunr)
+{
+	bcm2836_repark_loop();
 }
 
 static const struct smp_operations kona_smp_ops __initconst = {
@@ -340,6 +387,11 @@ static const struct smp_operations nsp_smp_ops __initconst = {
 CPU_METHOD_OF_DECLARE(bcm_smp_nsp, "brcm,bcm-nsp-smp", &nsp_smp_ops);
 
 const struct smp_operations bcm2836_smp_ops __initconst = {
+	.smp_prepare_cpus	= bcm2836_perpare_cpus,
 	.smp_boot_secondary	= bcm2836_boot_secondary,
+#ifdef CONFIG_HOTPLUG_CPU
+	.cpu_die		= bcm2836_cpu_die,
+	.cpu_can_disable	= bcm2836_cpu_can_disable,
+#endif
 };
 CPU_METHOD_OF_DECLARE(bcm_smp_bcm2836, "brcm,bcm2836-smp", &bcm2836_smp_ops);

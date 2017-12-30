@@ -48,7 +48,7 @@ endif
 obj-$(CONFIG_ARCH_BCM2835)	+= board_bcm2835.o
 ifeq ($(CONFIG_ARCH_BCM2835),y)
 ifeq ($(CONFIG_ARM),y)
-obj-$(CONFIG_SMP)		+= platsmp.o
+obj-$(CONFIG_SMP)		+= platsmp.o bcm2836-reparkcpu.o
 endif
 endif
 
