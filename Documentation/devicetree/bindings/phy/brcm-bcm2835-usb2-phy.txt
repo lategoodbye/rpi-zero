@@ -1,0 +1,13 @@
+Broadcom BCM2835 USB 2.0 PHY
+
+Required properties:
+ - compatible: brcm,bcm2835-phy
+ - #phy-cells: must be 0
+Refer to phy/phy-bindings.txt for the generic PHY binding properties
+
+Example:
+
+	usbphy: phy {
+		compatible = "brcm,bcm2835-phy";
+		#phy-cells = <0>;
+	};
