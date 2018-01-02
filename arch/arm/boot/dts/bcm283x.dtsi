@@ -638,7 +638,7 @@
 	};
 
 	usbphy: phy {
-		compatible = "usb-nop-xceiv";
+		compatible = "brcm,bcm2835-phy";
 		#phy-cells = <0>;
 	};
 };
