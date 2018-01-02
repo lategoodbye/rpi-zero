@@ -80,3 +80,10 @@ config PHY_BRCM_USB
 	  This driver is required by the USB XHCI, EHCI and OHCI
 	  drivers.
 	  If unsure, say N.
+
+config PHY_BCM2835_USB2
+	tristate "BCM2835 USB2 PHY Driver"
+	select GENERIC_PHY
+	default ARCH_BCM2835
+	help
+	  Enable this to support the BCM2835 USB 2.0 PHY.
