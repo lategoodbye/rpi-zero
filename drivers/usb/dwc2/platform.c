@@ -304,36 +304,6 @@ static int dwc2_lowlevel_hw_init(struct dwc2_hsotg *hsotg)
 }
 
 /**
- * dwc2_driver_remove() - Called when the DWC_otg core is unregistered with the
- * DWC_otg driver
- *
- * @dev: Platform device
- *
- * This routine is called, for example, when the rmmod command is executed. The
- * device may or may not be electrically present. If it is present, the driver
- * stops device processing. Any resources used on behalf of this device are
- * freed.
- */
-static int dwc2_driver_remove(struct platform_device *dev)
-{
-	struct dwc2_hsotg *hsotg = platform_get_drvdata(dev);
-
-	dwc2_debugfs_exit(hsotg);
-	if (hsotg->hcd_enabled)
-		dwc2_hcd_remove(hsotg);
-	if (hsotg->gadget_enabled)
-		dwc2_hsotg_remove(hsotg);
-
-	if (hsotg->ll_hw_enabled)
-		dwc2_lowlevel_hw_disable(hsotg);
-
-	reset_control_assert(hsotg->reset);
-	reset_control_assert(hsotg->reset_ecc);
-
-	return 0;
-}
-
-/**
  * dwc2_driver_shutdown() - Called on device shutdown
  *
  * @dev: Platform device
@@ -349,7 +319,35 @@ static void dwc2_driver_shutdown(struct platform_device *dev)
 {
 	struct dwc2_hsotg *hsotg = platform_get_drvdata(dev);
 
-	disable_irq(hsotg->irq);
+	dwc2_debugfs_exit(hsotg);
+	if (hsotg->hcd_enabled)
+		dwc2_hcd_remove(hsotg);
+	if (hsotg->gadget_enabled)
+		dwc2_hsotg_remove(hsotg);
+
+	if (hsotg->ll_hw_enabled)
+		dwc2_lowlevel_hw_disable(hsotg);
+
+	reset_control_assert(hsotg->reset);
+	reset_control_assert(hsotg->reset_ecc);
+}
+
+/**
+ * dwc2_driver_remove() - Called when the DWC_otg core is unregistered with the
+ * DWC_otg driver
+ *
+ * @dev: Platform device
+ *
+ * This routine is called, for example, when the rmmod command is executed. The
+ * device may or may not be electrically present. If it is present, the driver
+ * stops device processing. Any resources used on behalf of this device are
+ * freed.
+ */
+static int dwc2_driver_remove(struct platform_device *dev)
+{
+	dwc2_driver_shutdown(dev);
+
+	return 0;
 }
 
 /**
