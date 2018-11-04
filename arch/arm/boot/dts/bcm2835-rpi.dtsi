@@ -22,6 +22,10 @@
 			#address-cells = <0>;
 			#size-cells = <0>;
 			mboxes = <&mailbox>;
+
+			customer_otp: otp {
+				compatible = "raspberrypi,bcm2835-customer-otp";
+			};
 		};
 
 		power: power {
