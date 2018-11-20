@@ -29,6 +29,12 @@ struct rpi_customer_otp_packet {
 	u8 cells[CUSTOMER_CELLS * 4];
 };
 
+struct rpi_customer_otp_cell {
+	u32 index;
+	u32 length;
+	u32 val;
+};
+
 static int rpi_otp_read(void *context, unsigned int offset, void *val,
 			size_t bytes)
 {
@@ -55,6 +61,39 @@ static int rpi_otp_read(void *context, unsigned int offset, void *val,
 	return 0;
 }
 
+static int rpi_otp_write(void *context, unsigned int offset, void *val,
+			  size_t bytes)
+{
+	struct rpi_customer_otp_cell packet;
+	struct rpi_otp *otp = context;
+	unsigned int bytes_written;
+	u32 *buf = val;
+	int ret;
+
+	if (offset % 4)
+		return -EINVAL;
+
+	if (bytes % 4)
+		return -EINVAL;
+
+	for (bytes_written = 0; bytes_written < bytes; bytes_written += 4) {
+		packet.index = offset / 4;
+		packet.length = 1;
+		packet.val = *buf;
+		buf++;
+
+		ret = rpi_firmware_property(otp->fw, RPI_FIRMWARE_SET_CUSTOMER_OTP,
+					    &packet, sizeof(packet));
+
+		pr_info("%s: row = %u, val = %08X, ret = %d\n", __func__, packet.index, packet.val, ret);
+
+		if (ret)
+			return ret;
+	}
+
+	return bytes;
+}
+
 static struct nvmem_config ocotp_config = {
 	.name = "rpi-customer-otp",
 	.read_only = true,
@@ -69,6 +108,7 @@ static int rpi_otp_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct device_node *fw_node;
 	struct rpi_otp *otp;
+	u32 val;
 
 	otp = devm_kzalloc(dev, sizeof(*otp), GFP_KERNEL);
 	if (!otp)
@@ -88,6 +128,27 @@ static int rpi_otp_probe(struct platform_device *pdev)
 	ocotp_config.priv = otp;
 	ocotp_config.dev = dev;
 	otp->nvmem = devm_nvmem_register(dev, &ocotp_config);
+
+	rpi_otp_read(otp, 0, &val, sizeof(val));
+	if (!val) {
+		dev_info(dev, "Writing to OTP\n");
+		val = 0x12345678;
+		rpi_otp_write(otp, 0, &val, sizeof(val));
+		val = 0x23456789;
+		rpi_otp_write(otp, 4, &val, sizeof(val));
+		val = 0x3456789A;
+		rpi_otp_write(otp, 8, &val, sizeof(val));
+		val = 0x456789AB;
+		rpi_otp_write(otp, 12, &val, sizeof(val));
+		val = 0x56789ABC;
+		rpi_otp_write(otp, 16, &val, sizeof(val));
+		val = 0x6789ABCD;
+		rpi_otp_write(otp, 20, &val, sizeof(val));
+		val = 0x789ABCDE;
+		rpi_otp_write(otp, 24, &val, sizeof(val));
+		val = 0x89ABCDEF;
+		rpi_otp_write(otp, 28, &val, sizeof(val));
+	}
 
 	return PTR_ERR_OR_ZERO(otp->nvmem);
 }
