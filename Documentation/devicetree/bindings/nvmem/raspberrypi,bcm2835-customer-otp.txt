@@ -1,0 +1,22 @@
+Customer OTP Memory for Raspberry Pi
+
+The VC4 firmware exposes a mailbox interface that allows the ARM core
+to access the customer part of the OTP memory.
+
+The OTP node must be a child node of the Raspberry Pi firmware node.
+
+Required properties :
+- compatible     : Should be "raspberrypi,bcm2835-customer-otp"
+
+See nvmem.txt for more information.
+
+Example:
+
+firmware: firmware-rpi {
+	compatible = "raspberrypi,bcm2835-firmware";
+	mboxes = <&mailbox>;
+
+	customer_otp: otp {
+		compatible = "raspberrypi,bcm2835-customer-otp";
+	};
+};
