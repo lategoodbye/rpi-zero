@@ -3034,13 +3034,6 @@ static int lan78xx_bind(struct lan78xx_net *dev, struct usb_interface *intf)
 
 	dev->net->hw_features = dev->net->features;
 
-	ret = lan78xx_setup_irq_domain(dev);
-	if (ret < 0) {
-		netdev_warn(dev->net,
-			    "lan78xx_setup_irq_domain() failed : %d", ret);
-		goto out1;
-	}
-
 	dev->net->hard_header_len += TX_OVERHEAD;
 	dev->hard_mtu = dev->net->mtu + dev->net->hard_header_len;
 
@@ -3048,13 +3041,13 @@ static int lan78xx_bind(struct lan78xx_net *dev, struct usb_interface *intf)
 	ret = lan78xx_reset(dev);
 	if (ret) {
 		netdev_warn(dev->net, "Registers INIT FAILED....");
-		goto out2;
+		goto out1;
 	}
 
 	ret = lan78xx_mdio_init(dev);
 	if (ret) {
 		netdev_warn(dev->net, "MDIO INIT FAILED.....");
-		goto out2;
+		goto out1;
 	}
 
 	dev->net->flags |= IFF_MULTICAST;
@@ -3062,9 +3055,6 @@ static int lan78xx_bind(struct lan78xx_net *dev, struct usb_interface *intf)
 	pdata->wol = WAKE_MAGIC;
 
 	return ret;
-
-out2:
-	lan78xx_remove_irq_domain(dev);
 
 out1:
 	netdev_warn(dev->net, "Bind routine FAILED");
