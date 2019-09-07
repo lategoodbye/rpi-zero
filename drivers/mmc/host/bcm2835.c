@@ -592,12 +592,14 @@ static u32 bcm2835_read_wait_sdcmd(struct bcm2835_host *host, u32 max_ms)
 	return value;
 }
 
-static void bcm2835_finish_request(struct bcm2835_host *host)
+static void bcm2835_finish_request(struct bcm2835_host *host,
+				   bool cancel_timeout)
 {
 	struct dma_chan *terminate_chan = NULL;
 	struct mmc_request *mrq;
 
-	cancel_delayed_work(&host->timeout_work);
+	if (cancel_timeout)
+		cancel_delayed_work(&host->timeout_work);
 
 	mrq = host->mrq;
 
@@ -634,7 +636,7 @@ bool bcm2835_send_command(struct bcm2835_host *host, struct mmc_command *cmd)
 		dev_err(dev, "previous command never completed.\n");
 		bcm2835_dumpregs(host);
 		cmd->error = -EILSEQ;
-		bcm2835_finish_request(host);
+		bcm2835_finish_request(host, true);
 		return false;
 	}
 
@@ -654,7 +656,7 @@ bool bcm2835_send_command(struct bcm2835_host *host, struct mmc_command *cmd)
 	if ((cmd->flags & MMC_RSP_136) && (cmd->flags & MMC_RSP_BUSY)) {
 		dev_err(dev, "unsupported response type!\n");
 		cmd->error = -EINVAL;
-		bcm2835_finish_request(host);
+		bcm2835_finish_request(host, true);
 		return false;
 	}
 
@@ -709,7 +711,7 @@ static void bcm2835_transfer_complete(struct bcm2835_host *host)
 		}
 	} else {
 		bcm2835_wait_transfer_complete(host);
-		bcm2835_finish_request(host);
+		bcm2835_finish_request(host, true);
 	}
 }
 
@@ -752,7 +754,7 @@ static void bcm2835_finish_command(struct bcm2835_host *host)
 		dev_err(dev, "command never completed.\n");
 		bcm2835_dumpregs(host);
 		host->cmd->error = -EIO;
-		bcm2835_finish_request(host);
+		bcm2835_finish_request(host, true);
 		return;
 	} else if (sdcmd & SDCMD_FAIL_FLAG) {
 		u32 sdhsts = readl(host->ioaddr + SDHSTS);
@@ -779,7 +781,7 @@ static void bcm2835_finish_command(struct bcm2835_host *host)
 				/* Kick the FSM out of its wait */
 				writel(edm | SDEDM_FORCE_DATA_MODE,
 				       host->ioaddr + SDEDM);
-			bcm2835_finish_request(host);
+			bcm2835_finish_request(host, true);
 			return;
 		}
 	}
@@ -812,12 +814,12 @@ static void bcm2835_finish_command(struct bcm2835_host *host)
 		}
 	} else if (cmd == host->mrq->stop) {
 		/* Finished CMD12 */
-		bcm2835_finish_request(host);
+		bcm2835_finish_request(host, true);
 	} else {
 		/* Processed actual command. */
 		host->cmd = NULL;
 		if (!host->data)
-			bcm2835_finish_request(host);
+			bcm2835_finish_request(host, true);
 		else if (host->data_complete)
 			bcm2835_transfer_complete(host);
 	}
@@ -847,7 +849,7 @@ static void bcm2835_timeout(struct work_struct *work)
 			else
 				host->mrq->cmd->error = -ETIMEDOUT;
 
-			bcm2835_finish_request(host);
+			bcm2835_finish_request(host, false);
 		}
 	}
 
@@ -1202,7 +1204,7 @@ static void bcm2835_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		if (mrq->cmd)
 			mrq->cmd->error = -EILSEQ;
 
-		bcm2835_finish_request(host);
+		bcm2835_finish_request(host, true);
 		mutex_unlock(&host->mutex);
 		return;
 	}
