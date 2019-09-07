@@ -841,16 +841,23 @@ static void bcm2835_timeout(struct work_struct *work)
 		bcm2835_reset(mmc_from_priv(host));
 
 		if (host->data) {
-			host->data->error = -ETIMEDOUT;
-			bcm2835_finish_data(host);
+			struct mmc_data *data = host->data;
+
+			data->error = -ETIMEDOUT;
+
+			host->hcfg &= ~(SDHCFG_DATA_IRPT_EN |
+					SDHCFG_BLOCK_IRPT_EN);
+			writel(host->hcfg, host->ioaddr + SDHCFG);
+
+			host->data_complete = true;
 		} else {
 			if (host->cmd)
 				host->cmd->error = -ETIMEDOUT;
 			else
 				host->mrq->cmd->error = -ETIMEDOUT;
-
-			bcm2835_finish_request(host, false);
 		}
+
+		bcm2835_finish_request(host, false);
 	}
 
 	mutex_unlock(&host->mutex);
