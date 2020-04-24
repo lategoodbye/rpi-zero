@@ -210,6 +210,15 @@ rpi_register_hwmon_driver(struct device *dev, struct rpi_firmware *fw)
 
 static void rpi_register_clk_driver(struct device *dev)
 {
+	/*
+	 * Earlier DTs don't have a node for the firmware clocks but
+	 * rely on us creating a platform device by hand. If we do
+	 * have a node for the firmware clocks, just bail out here.
+	 */
+	if (of_get_compatible_child(dev->of_node,
+				    "raspberrypi,firmware-clocks"))
+		return;
+
 	rpi_clk = platform_device_register_data(dev, "raspberrypi-clk",
 						-1, NULL, 0);
 }
@@ -262,8 +271,12 @@ static int rpi_firmware_remove(struct platform_device *pdev)
 
 	platform_device_unregister(rpi_hwmon);
 	rpi_hwmon = NULL;
-	platform_device_unregister(rpi_clk);
-	rpi_clk = NULL;
+
+	if (rpi_clk) {
+		platform_device_unregister(rpi_clk);
+		rpi_clk = NULL;
+	}
+
 	mbox_free_channel(fw->chan);
 
 	return 0;
