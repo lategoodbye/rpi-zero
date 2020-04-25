@@ -1181,8 +1181,13 @@ static int vc4_hdmi_audio_init(struct vc4_hdmi *vc4_hdmi)
 
 	card->dai_link = dai_link;
 	card->num_links = 1;
-	card->name = "vc4-hdmi";
 	card->dev = dev;
+
+	if (vc4_hdmi->variant->encoder_type == VC4_ENCODER_TYPE_HDMI1) {
+		card->name = "vc4-hdmi1";
+	} else {
+		card->name = "vc4-hdmi";
+	}
 
 	/*
 	 * Be careful, snd_soc_register_card() calls dev_set_drvdata() and
