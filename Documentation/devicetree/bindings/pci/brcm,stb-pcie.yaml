@@ -56,6 +56,10 @@ properties:
     description: Indicates usage of spread-spectrum clocking.
     type: boolean
 
+  aspm-no-l0s:
+    description: Disables ASPM L0s capability.
+    type: boolean
+
 required:
   - reg
   - dma-ranges
