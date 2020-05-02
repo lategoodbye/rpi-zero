@@ -1492,6 +1492,15 @@ static int vc4_hdmi_init_resources(struct vc4_hdmi *vc4_hdmi)
 	}
 	vc4_hdmi->audio_clock = vc4_hdmi->hsm_clock;
 
+	/* HDMI core must be enabled. */
+	if (!(HDMI_READ(HDMI_M_CTL) & VC4_HD_M_ENABLE)) {
+		HDMI_WRITE(HDMI_M_CTL, VC4_HD_M_SW_RST);
+		udelay(1);
+		HDMI_WRITE(HDMI_M_CTL, 0);
+
+		HDMI_WRITE(HDMI_M_CTL, VC4_HD_M_ENABLE);
+	}
+
 	return 0;
 }
 
@@ -1641,14 +1650,6 @@ static int vc4_hdmi_bind(struct device *dev, struct device *master, void *data)
 		vc4_hdmi->hpd_active_low = hpd_gpio_flags & OF_GPIO_ACTIVE_LOW;
 	}
 
-	/* HDMI core must be enabled. */
-	if (!(HDMI_READ(HDMI_M_CTL) & VC4_HD_M_ENABLE)) {
-		HDMI_WRITE(HDMI_M_CTL, VC4_HD_M_SW_RST);
-		udelay(1);
-		HDMI_WRITE(HDMI_M_CTL, 0);
-
-		HDMI_WRITE(HDMI_M_CTL, VC4_HD_M_ENABLE);
-	}
 	pm_runtime_enable(dev);
 
 	drm_encoder_init(drm, encoder, &vc4_hdmi_encoder_funcs,
