@@ -147,6 +147,7 @@ struct vc4_hdmi {
 	struct clk *pixel_clock;
 	struct clk *hsm_clock;
 	struct clk *audio_clock;
+	struct clk *pixel_bvb_clock;
 
 	struct reset_control *reset;
 

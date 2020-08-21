@@ -80,6 +80,7 @@
 # define VC4_HD_M_ENABLE			BIT(0)
 
 #define CEC_CLOCK_FREQ 40000
+#define VC4_HSM_MID_CLOCK 149985000
 
 static int vc4_hdmi_debugfs_regs(struct seq_file *m, void *unused)
 {
@@ -380,6 +381,7 @@ static void vc4_hdmi_encoder_post_crtc_powerdown(struct drm_encoder *encoder)
 	HDMI_WRITE(HDMI_VID_CTL,
 		   HDMI_READ(HDMI_VID_CTL) & ~VC4_HD_VID_CTL_ENABLE);
 
+	clk_disable_unprepare(vc4_hdmi->pixel_bvb_clock);
 	clk_disable_unprepare(vc4_hdmi->hsm_clock);
 	clk_disable_unprepare(vc4_hdmi->pixel_clock);
 
@@ -634,6 +636,23 @@ static void vc4_hdmi_encoder_pre_crtc_configure(struct drm_encoder *encoder)
 	ret = clk_prepare_enable(vc4_hdmi->hsm_clock);
 	if (ret) {
 		DRM_ERROR("Failed to turn on HSM clock: %d\n", ret);
+		clk_disable_unprepare(vc4_hdmi->pixel_clock);
+		return;
+	}
+
+	ret = clk_set_rate(vc4_hdmi->pixel_bvb_clock,
+			(hsm_rate > VC4_HSM_MID_CLOCK ? 150000000 : 75000000));
+	if (ret) {
+		DRM_ERROR("Failed to set pixel bvb clock rate: %d\n", ret);
+		clk_disable_unprepare(vc4_hdmi->hsm_clock);
+		clk_disable_unprepare(vc4_hdmi->pixel_clock);
+		return;
+	}
+
+	ret = clk_prepare_enable(vc4_hdmi->pixel_bvb_clock);
+	if (ret) {
+		DRM_ERROR("Failed to turn on pixel bvb clock: %d\n", ret);
+		clk_disable_unprepare(vc4_hdmi->hsm_clock);
 		clk_disable_unprepare(vc4_hdmi->pixel_clock);
 		return;
 	}
@@ -1591,6 +1610,12 @@ static int vc5_hdmi_init_resources(struct vc4_hdmi *vc4_hdmi)
 	if (IS_ERR(vc4_hdmi->audio_clock)) {
 		DRM_ERROR("Failed to get 108MHz clock\n");
 		return PTR_ERR(vc4_hdmi->audio_clock);
+	}
+
+	vc4_hdmi->pixel_bvb_clock = devm_clk_get(dev, "bvb");
+	if (IS_ERR(vc4_hdmi->pixel_bvb_clock)) {
+		DRM_ERROR("Failed to get pixel bvb clock\n");
+		return PTR_ERR(vc4_hdmi->pixel_bvb_clock);
 	}
 
 	vc4_hdmi->reset = devm_reset_control_get(dev, NULL);
