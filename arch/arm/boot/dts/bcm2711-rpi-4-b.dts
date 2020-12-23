@@ -298,6 +298,12 @@
 	status = "okay";
 };
 
+&v3d {
+	clocks = <&firmware_clocks 5>;
+	clocks-names = "v3d";
+	status = "okay";
+};
+
 &vec {
 	status = "disabled";
 };
