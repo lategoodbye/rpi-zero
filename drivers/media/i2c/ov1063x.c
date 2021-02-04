@@ -850,13 +850,14 @@ static int ov1063x_configure(struct ov1063x_priv *priv)
 	ov1063x_write(priv, OV1063X_ANA_ARRAY1, val, &ret);
 
 	/* Sensor configuration */
+#if 0 // XXX these break at least 96MHz pclk
 	ov1063x_write(priv, OV1063X_SENSOR_RSTGOLOW,
 		      (pll_cfg.clk_out + 1500000) / 3000000, &ret);
 	ov1063x_write(priv, OV1063X_SENSOR_HLDWIDTH,
 		      (pll_cfg.clk_out + 666666) / 1333333, &ret);
 	ov1063x_write(priv, OV1063X_SENSOR_TXWIDTH,
 		      (pll_cfg.clk_out + 961500) / 1923000, &ret);
-
+#endif
 	/*
 	 * Timings (including cropping)
 	 *
