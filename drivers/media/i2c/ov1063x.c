@@ -724,7 +724,8 @@ static int ov1063x_pll_setup(unsigned int clk_rate,
 				if (pclk < min_pclk)
 					continue;
 
-				if (pclk < best_pclk) {
+				//if (pclk < best_pclk) {
+				if (pclk == 96 * 1000 * 1000) { // XXX hardcode to 96MHz
 					best_pclk = pclk;
 					best_hts = hts;
 					best_pre_div_x2 = pre_div_x2;
