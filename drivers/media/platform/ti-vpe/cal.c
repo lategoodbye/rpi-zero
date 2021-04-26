@@ -151,6 +151,16 @@ const struct cal_format_info cal_formats[] = {
 		.fourcc		= V4L2_PIX_FMT_SRGGB12,
 		.code		= MEDIA_BUS_FMT_SRGGB12_1X12,
 		.bpp		= 12,
+	}, {
+		.fourcc		= V4L2_META_FMT_8,
+		.code		= MEDIA_BUS_FMT_METADATA_8,
+		.bpp		= 8,
+		.meta		= true,
+	}, {
+		.fourcc		= V4L2_META_FMT_16,
+		.code		= MEDIA_BUS_FMT_METADATA_16,
+		.bpp		= 16,
+		.meta		= true,
 	},
 };
 
