@@ -1587,6 +1587,12 @@ config VIDEO_DS90UB913
 	  Device driver for the Texas Instruments DS90UB913
 	  FPD-Link III Serializer.
 
+config VIDEO_DS90UB953
+	tristate "TI DS90UB953 Serializer"
+	help
+	  Device driver for the Texas Instruments DS90UB953
+	  FPD-Link III Serializer.
+
 config VIDEO_DS90UB960
 	tristate "TI DS90UB960 Deserializer"
 	depends on OF_GPIO
