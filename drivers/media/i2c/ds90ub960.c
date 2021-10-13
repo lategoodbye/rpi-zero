@@ -390,6 +390,9 @@ static const struct ub960_format_info ub960_formats[] = {
 	{ .code = MEDIA_BUS_FMT_VYUY8_1X16, .bpp = 16, .datatype = 0x1e, },
 	{ .code = MEDIA_BUS_FMT_YVYU8_1X16, .bpp = 16, .datatype = 0x1e, },
 
+	{ .code = MEDIA_BUS_FMT_METADATA_8, .bpp = 8, .datatype = 0x12, .meta = true, },
+	{ .code = MEDIA_BUS_FMT_METADATA_16, .bpp = 16, .datatype = 0x12, .meta = true },
+
 	/* Legacy */
 	{ .code = MEDIA_BUS_FMT_YUYV8_2X8, .bpp = 16, .datatype = 0x1e, },
 	{ .code = MEDIA_BUS_FMT_UYVY8_2X8, .bpp = 16, .datatype = 0x1e, },
