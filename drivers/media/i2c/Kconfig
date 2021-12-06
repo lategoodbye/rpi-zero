@@ -1230,6 +1230,18 @@ config VIDEO_OV9734
 	  To compile this driver as a module, choose M here: the
 	  module's name is ov9734.
 
+config VIDEO_OV10633
+	tristate "OmniVision OV10633/OV10635 sensor support"
+	depends on I2C && VIDEO_V4L2
+	depends on GPIOLIB && OF
+	select MEDIA_CONTROLLER
+	select REGMAP_I2C
+	select V4L2_FWNODE
+	select VIDEO_V4L2_SUBDEV_API
+	help
+	  This is a Video4Linux2 driver for the OmniVision
+	  OV10633 and OV10635 camera sensors.
+
 config VIDEO_OV13858
 	tristate "OmniVision OV13858 sensor support"
 	depends on I2C && VIDEO_V4L2
