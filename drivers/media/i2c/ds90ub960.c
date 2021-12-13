@@ -343,7 +343,12 @@ struct ub960_data {
 	bool streaming;
 
 	u8 stored_fwd_ctl;
+
+	u8 pad_enable[UB960_MAX_NPORTS];
+	u64 stream_enable_mask[UB960_MAX_NPORTS];	// XXX remove
 };
+
+static void ub960_soft_reset(struct ub960_data *priv);
 
 static inline struct ub960_data *sd_to_ub960(struct v4l2_subdev *sd)
 {
@@ -375,6 +380,14 @@ static inline bool ub960_pad_is_source(struct ub960_data *priv, u32 pad)
 {
 	return pad >= priv->hw_data->num_rxports &&
 	       pad < (priv->hw_data->num_rxports + priv->hw_data->num_txports);
+}
+
+static inline unsigned int ub960_pad_to_port(struct ub960_data *priv, u32 pad)
+{
+	if (ub960_pad_is_sink(priv, pad))
+		return pad;
+	else
+		return pad - priv->hw_data->num_rxports;
 }
 
 struct ub960_format_info {
@@ -451,8 +464,8 @@ static int ub960_write(const struct ub960_data *priv, u8 reg, u8 val)
 	return ret;
 }
 
-static int ub960_update_bits_shared(const struct ub960_data *priv, u8 reg,
-				    u8 mask, u8 val)
+static int ub960_update_bits(const struct ub960_data *priv, u8 reg, u8 mask,
+			     u8 val)
 {
 	struct device *dev = &priv->client->dev;
 	int ret;
@@ -1123,6 +1136,9 @@ static int ub960_rxport_probe_one(struct ub960_data *priv,
 	ub960_rxport_write(priv, nport, UB960_RR_SER_ALIAS_ID,
 			   rxport->ser_alias << 1);
 
+	/* Enable RX port */
+	ub960_update_bits(priv, UB960_SR_RX_PORT_CTL, BIT(nport), BIT(nport));
+
 	dev_dbg(dev, "ser%d: at alias 0x%02x\n", nport, rxport->ser_alias);
 
 	ret = i2c_atr_add_adapter(priv->atr, nport);
@@ -1223,16 +1239,163 @@ static void ub960_rxport_handle_events(struct ub960_data *priv, u8 nport)
  * V4L2
  */
 
-static int ub960_start_streaming(struct ub960_data *priv)
+static int ub960_enable_tx_port(struct ub960_data *priv, unsigned int nport)
 {
-	const struct v4l2_subdev_krouting *routing;
-	struct v4l2_subdev_state *state;
-	unsigned int i;
-	u8 nport;
+	struct device *dev = &priv->client->dev;
+
+	dev_dbg(dev, "enable TX port %u\n", nport);
+
+	ub960_csiport_update_bits(priv, nport, UB960_TR_CSI_CTL,
+				  UB960_TR_CSI_CTL_CSI_ENABLE,
+				  UB960_TR_CSI_CTL_CSI_ENABLE);
+
+	return 0;
+}
+
+static void ub960_disable_tx_port(struct ub960_data *priv, unsigned int nport)
+{
+	struct device *dev = &priv->client->dev;
+
+	dev_dbg(dev, "disable TX port %u\n", nport);
+
+	ub960_csiport_update_bits(priv, nport, UB960_TR_CSI_CTL,
+				  UB960_TR_CSI_CTL_CSI_ENABLE, 0);
+}
+
+static int ub960_enable_rx_port(struct ub960_data *priv, unsigned int nport)
+{
+	struct ub960_rxport *rxport = priv->rxports[nport];
+	struct device *dev = &priv->client->dev;
 	int ret;
-	u32 csi_ctl;
-	u32 speed_select;
-	u32 fwd_ctl;
+
+	dev_dbg(dev, "enable RX port %u\n", nport);
+
+	if (!rxport->locked) {
+		dev_err(dev, "RX port %u not locked\n", nport);
+		return -EINVAL;
+	}
+
+	/* Start camera */
+	ret = v4l2_subdev_call(rxport->sd, video, s_stream, 1);
+	if (ret) {
+		dev_err(dev, "Failed to enable RX port %u source: %d\n", nport,
+			ret);
+		return ret;
+	}
+
+	/* Enable forwarding */
+	ub960_update_bits(priv, UB960_SR_FWD_CTL1, BIT(4 + nport), 0);
+
+	return 0;
+}
+
+static void ub960_disable_rx_port(struct ub960_data *priv, unsigned int nport)
+{
+	struct ub960_rxport *rxport = priv->rxports[nport];
+	struct device *dev = &priv->client->dev;
+
+	dev_dbg(dev, "disable RX port %u\n", nport);
+
+	/* Disable forwarding */
+	ub960_update_bits(priv, UB960_SR_FWD_CTL1, BIT(4 + nport),
+			  BIT(4 + nport));
+
+	/* Stop the camera */
+	v4l2_subdev_call(rxport->sd, video, s_stream, 0);
+}
+
+static int ub960_enable_streams_for_route(struct ub960_data *priv,
+					  struct v4l2_subdev_route *route)
+{
+	int ret;
+
+	if (priv->pad_enable[route->source_pad]++ == 0) {
+		ret = ub960_enable_tx_port(
+			priv, ub960_pad_to_port(priv, route->source_pad));
+		if (ret)
+			return ret;
+	}
+
+	// XXX remove
+	if (!(BIT_ULL(route->source_stream) &
+	      priv->stream_enable_mask[route->source_pad])) {
+
+		WARN_ON(priv->stream_enable_mask[route->source_pad] &
+			BIT_ULL(route->source_stream));
+
+		priv->stream_enable_mask[route->source_pad] |=
+			BIT_ULL(route->source_stream);
+	}
+
+	if (priv->pad_enable[route->sink_pad]++ == 0) {
+		ret = ub960_enable_rx_port(
+			priv, ub960_pad_to_port(priv, route->sink_pad));
+		if (ret) {
+			--priv->pad_enable[route->sink_pad];
+
+			if (--priv->pad_enable[route->source_pad] == 0)
+				ub960_disable_tx_port(
+					priv, ub960_pad_to_port(
+						      priv, route->source_pad));
+			return ret;
+		}
+	}
+
+	// XXX remove
+	if (!(BIT_ULL(route->sink_stream) &
+	      priv->stream_enable_mask[route->sink_pad])) {
+		WARN_ON(priv->stream_enable_mask[route->sink_pad] &
+			BIT_ULL(route->sink_stream));
+
+		priv->stream_enable_mask[route->sink_pad] |=
+			BIT_ULL(route->sink_stream);
+	}
+
+	return 0;
+}
+
+static void ub960_disable_streams_for_route(struct ub960_data *priv,
+					    struct v4l2_subdev_route *route)
+{
+	if (--priv->pad_enable[route->source_pad] == 0)
+		ub960_disable_tx_port(
+			priv, ub960_pad_to_port(priv, route->source_pad));
+
+	// XXX remove
+	if ((BIT_ULL(route->source_stream) &
+	     priv->stream_enable_mask[route->source_pad])) {
+		WARN_ON(!(priv->stream_enable_mask[route->source_pad] &
+			  BIT_ULL(route->source_stream)));
+
+		priv->stream_enable_mask[route->source_pad] &=
+			~BIT_ULL(route->source_stream);
+	}
+
+	if (--priv->pad_enable[route->sink_pad] == 0)
+		ub960_disable_rx_port(priv,
+				      ub960_pad_to_port(priv, route->sink_pad));
+
+	// XXX remove
+	if ((BIT_ULL(route->sink_stream) &
+	     priv->stream_enable_mask[route->sink_pad])) {
+		WARN_ON(!(priv->stream_enable_mask[route->sink_pad] &
+			  BIT_ULL(route->sink_stream)));
+
+		priv->stream_enable_mask[route->sink_pad] &=
+			~BIT_ULL(route->sink_stream);
+	}
+}
+
+static int ub960_configure_ports(struct ub960_data *priv,
+				 struct v4l2_subdev_state *state)
+{
+	struct device *dev = &priv->client->dev;
+	const struct v4l2_subdev_krouting *routing = &state->routing;
+	unsigned int i;
+	unsigned int nport;
+	u8 speed_select;
+	u8 fwd_ctl;
+	u32 active_tx_mask = 0;
 	struct {
 		u32 num_streams;
 		u8 pixel_dt;
@@ -1241,69 +1404,64 @@ static int ub960_start_streaming(struct ub960_data *priv)
 		u32 tx_port;
 	} rx_data[UB960_MAX_RX_NPORTS] = { 0 };
 
-	ret = 0;
-
-	state = v4l2_subdev_lock_active_state(&priv->sd);
-
-	routing = &state->routing;
+	dev_dbg(dev, "ub960_configure_ports\n");
 
 	for (i = 0; i < routing->num_routes; ++i) {
 		struct v4l2_subdev_route *route = &routing->routes[i];
-		u32 port = route->sink_pad;
-		struct ub960_rxport *rxport = priv->rxports[port];
+		struct ub960_rxport *rxport;
+		struct ub960_txport *txport;
 		struct v4l2_mbus_framefmt *fmt;
 		const struct ub960_format_info *ub960_fmt;
+		unsigned int nport;
 
+		nport = ub960_pad_to_port(priv, route->sink_pad);
+
+		rxport = priv->rxports[nport];
 		if (!rxport)
-			continue;
+			return -EINVAL;
 
-		rx_data[port].tx_port =
-			route->source_pad - priv->hw_data->num_rxports;
+		txport = priv->txports[ub960_pad_to_port(priv, route->source_pad)];
+		if (!txport)
+			return -EINVAL;
+
+		active_tx_mask |= BIT(ub960_pad_to_port(priv, route->source_pad));
+
+		rx_data[nport].tx_port = ub960_pad_to_port(priv, route->source_pad);
+
+		rx_data[nport].num_streams++;
 
 		/* For the rest, we are only interested in parallel busses */
 		if (rxport->mode == RXPORT_MODE_CSI2)
 			continue;
 
-		rx_data[port].num_streams++;
+		if (rx_data[nport].num_streams > 2)
+			return -EPIPE;
 
-		if (rx_data[port].num_streams > 2) {
-			ret = -EPIPE;
-			break;
-		}
-
-		fmt = v4l2_state_get_stream_format(state, port,
+		fmt = v4l2_state_get_stream_format(state, route->sink_pad,
 						   route->sink_stream);
-		if (!fmt) {
-			ret = -EPIPE;
-			break;
-		}
+		if (!fmt)
+			return -EPIPE;
 
 		ub960_fmt = ub960_find_format(fmt->code);
-		if (!ub960_fmt) {
-			ret = -EPIPE;
-			break;
-		}
+		if (!ub960_fmt)
+			return -EPIPE;
 
 		if (ub960_fmt->meta) {
 			if (fmt->height > 3) {
 				dev_err(&priv->client->dev,
 					"Unsupported metadata height %u\n",
 					fmt->height);
-				ret = -EPIPE;
-				break;
+				return -EPIPE;
 			}
 
-			rx_data[port].meta_dt = ub960_fmt->datatype;
-			rx_data[port].meta_lines = fmt->height;
+			rx_data[nport].meta_dt = ub960_fmt->datatype;
+			rx_data[nport].meta_lines = fmt->height;
 		} else {
-			rx_data[port].pixel_dt = ub960_fmt->datatype;
+			rx_data[nport].pixel_dt = ub960_fmt->datatype;
 		}
 	}
 
-	v4l2_subdev_unlock_state(state);
-
-	if (ret)
-		return ret;
+	/* Configure TX ports */
 
 	switch (priv->tx_data_rate) {
 	case 1600000000:
@@ -1320,19 +1478,22 @@ static int ub960_start_streaming(struct ub960_data *priv)
 
 	ub960_write(priv, UB960_SR_CSI_PLL_CTL, speed_select);
 
-	for (nport = 0; nport < priv->hw_data->num_txports; nport++) {
+	for (nport = 0; nport < priv->hw_data->num_txports; ++nport) {
 		struct ub960_txport *txport = priv->txports[nport];
+		u8 csi_ctl;
 
-		if (!txport)
+		if (!(active_tx_mask & BIT(nport))) {
+			ub960_csiport_write(priv, nport, UB960_TR_CSI_CTL, 0);
 			continue;
+		}
 
-		csi_ctl = UB960_TR_CSI_CTL_CSI_ENABLE;
+		csi_ctl = 0;
 
 		/*
 		 * From the datasheet: "initial CSI Skew-Calibration
 		 * sequence [...] should be set when operating at 1.6 Gbps"
 		 */
-		if (speed_select == 0)
+		if (priv->tx_data_rate == 1600000000)
 			csi_ctl |= UB960_TR_CSI_CTL_CSI_CAL_EN;
 
 		csi_ctl |= (4 - txport->num_data_lanes) << 4;
@@ -1340,10 +1501,14 @@ static int ub960_start_streaming(struct ub960_data *priv)
 		ub960_csiport_write(priv, nport, UB960_TR_CSI_CTL, csi_ctl);
 	}
 
+	/* Configure RX ports */
+
+	fwd_ctl = 0;
+
 	for (nport = 0; nport < priv->hw_data->num_rxports; ++nport) {
 		struct ub960_rxport *rxport = priv->rxports[nport];
 
-		if (!rxport || !rxport->locked)
+		if (rx_data[nport].num_streams == 0)
 			continue;
 
 		switch (rxport->mode) {
@@ -1359,8 +1524,7 @@ static int ub960_start_streaming(struct ub960_data *priv)
 
 			ub960_rxport_write(priv, rxport->nport,
 					   UB960_RR_RAW_EMBED_DTYPE,
-					   (rx_data[nport].meta_lines << 6) |
-						   rx_data[nport].meta_dt);
+					   (rx_data[nport].meta_lines << 6) | rx_data[nport].meta_dt);
 
 			break;
 
@@ -1372,100 +1536,146 @@ static int ub960_start_streaming(struct ub960_data *priv)
 
 			break;
 		}
-	}
 
-	/* Start all cameras */
+		/* Forwarding */
 
-	priv->streaming = true;
-
-	for (nport = 0; nport < priv->hw_data->num_rxports; ++nport) {
-		struct ub960_rxport *rxport = priv->rxports[nport];
-
-		if (!rxport || !rxport->locked)
-			continue;
-
-		ret = v4l2_subdev_call(rxport->sd, video, s_stream, 1);
-		if (ret) {
-			for (; nport > 0; --nport) {
-				rxport = priv->rxports[nport - 1];
-				if (!rxport)
-					continue;
-
-				v4l2_subdev_call(rxport->sd, video, s_stream,
-						 0);
-			}
-
-			priv->streaming = false;
-
-			return ret;
-		}
-	}
-
-	/* Forwarding */
-
-	fwd_ctl = 0;
-
-	for (nport = 0; nport < priv->hw_data->num_rxports; ++nport) {
-		struct ub960_rxport *rxport = priv->rxports[nport];
-
-		if (!rxport || !rxport->locked) {
-			fwd_ctl |= BIT(4 + nport); /* forward disable */
-			continue;
-		}
+		fwd_ctl |= BIT(4 + nport); /* forward disable */
 
 		if (rx_data[nport].tx_port == 1)
 			fwd_ctl |= BIT(nport); /* forward to TX1 */
+		else
+			fwd_ctl &= ~BIT(nport); /* forward to TX0 */
 	}
 
 	ub960_write(priv, UB960_SR_FWD_CTL1, fwd_ctl);
 
-	return 0;
-}
-
-static int ub960_stop_streaming(struct ub960_data *priv)
-{
-	unsigned int i;
-
-	/* Disable forwarding */
-	ub960_write(priv, UB960_SR_FWD_CTL1,
-		    (BIT(0) | BIT(1) | BIT(2) | BIT(3)) << 4);
-
-	/* Stop all cameras */
-	for (i = 0; i < priv->hw_data->num_rxports; ++i) {
-		struct ub960_rxport *rxport = priv->rxports[i];
-
-		if (!rxport || !rxport->locked)
-			continue;
-
-		v4l2_subdev_call(rxport->sd, video, s_stream, 0);
-	}
-
-	for (i = 0; i < priv->hw_data->num_txports; i++) {
-		struct ub960_txport *txport = priv->txports[i];
-
-		if (!txport)
-			continue;
-
-		ub960_csiport_write(priv, i, UB960_TR_CSI_CTL, 0);
-	}
-
-	priv->streaming = false;
+	ub960_soft_reset(priv);
 
 	return 0;
 }
 
-static int ub960_s_stream(struct v4l2_subdev *sd, int enable)
+static int ub960_enable_streams(struct v4l2_subdev *sd, u32 pad,
+				u64 streams_mask)
 {
 	struct ub960_data *priv = sd_to_ub960(sd);
+	struct device *dev = &priv->client->dev;
+	struct v4l2_subdev_state *state;
+	const struct v4l2_subdev_krouting *routing;
+	unsigned int stream;
+	unsigned int failed_stream;
+	int ret;
 
-	if (enable)
-		return ub960_start_streaming(priv);
-	else
-		return ub960_stop_streaming(priv);
+	dev_dbg(dev, "Enable streams %u:%#llx\n", pad, streams_mask);
+
+	state = v4l2_subdev_lock_active_state(&priv->sd);
+	routing = &state->routing;
+
+	if (!priv->streaming) {
+		ret = ub960_configure_ports(priv, state);
+		if (ret) {
+			v4l2_subdev_unlock_state(state);
+			return ret;
+		}
+	}
+
+	for_each_set_bit(stream, (unsigned long *)&streams_mask,
+			 sizeof(streams_mask)) {
+		struct v4l2_subdev_route *route;
+
+		for_each_active_route(routing, route) {
+			if (!(route->source_pad == pad) ||
+			    !(route->source_stream == stream))
+				continue;
+
+			ret = ub960_enable_streams_for_route(priv, route);
+			if (ret) {
+				failed_stream = stream;
+				goto err;
+			}
+		}
+	}
+
+
+	v4l2_subdev_unlock_state(state);
+
+	priv->streaming = true;
+
+	return 0;
+
+err:
+	for_each_set_bit(stream, (unsigned long *)&streams_mask,
+			 sizeof(streams_mask)) {
+		struct v4l2_subdev_route *route;
+
+		if (stream == failed_stream)
+			break;
+
+		for_each_active_route(routing, route) {
+			if (!(route->source_pad == pad) ||
+			    !(route->source_stream == stream))
+				continue;
+
+			ub960_disable_streams_for_route(priv, route);
+		}
+	}
+
+	v4l2_subdev_unlock_state(state);
+
+	return ret;
+}
+
+static void ub960_update_streaming_status(struct ub960_data *priv)
+{
+	unsigned int i;
+	bool streaming = false;
+
+	for (i = 0; i < UB960_MAX_NPORTS; ++i) {
+		if (priv->pad_enable[i]) {
+			streaming = true;
+			break;
+		}
+	}
+
+	priv->streaming = streaming;
+}
+
+static int ub960_disable_streams(struct v4l2_subdev *sd, u32 pad,
+				 u64 streams_mask)
+{
+	struct ub960_data *priv = sd_to_ub960(sd);
+	struct device *dev = &priv->client->dev;
+	struct v4l2_subdev_state *state;
+	const struct v4l2_subdev_krouting *routing;
+	unsigned int stream;
+
+	dev_dbg(dev, "Disable streams %u:%#llx\n", pad, streams_mask);
+
+	state = v4l2_subdev_lock_active_state(&priv->sd);
+	routing = &state->routing;
+
+	for_each_set_bit(stream, (unsigned long *)&streams_mask,
+			 sizeof(streams_mask)) {
+		struct v4l2_subdev_route *route;
+
+		for_each_active_route(routing, route) {
+			if (!(route->source_pad == pad) ||
+			    !(route->source_stream == stream))
+				continue;
+
+			ub960_disable_streams_for_route(priv, route);
+		}
+	}
+
+	v4l2_subdev_unlock_state(state);
+
+	ub960_update_streaming_status(priv);
+
+	return 0;
 }
 
 static const struct v4l2_subdev_video_ops ub960_video_ops = {
-	.s_stream = ub960_s_stream,
+	.enable_streams = ub960_enable_streams,
+	.disable_streams = ub960_disable_streams,
 };
 
 static int _ub960_set_routing(struct v4l2_subdev *sd,
@@ -1604,7 +1814,7 @@ static int ub960_get_frame_desc(struct v4l2_subdev *sd, unsigned int pad,
 		fd->entry[fd->num_entries].pixelcode =
 			source_entry->pixelcode;
 
-		/* Use the RX channel number as VC. See ub960_start_streaming() */
+		/* Use the RX channel number as VC. See ub960_enable_rx_port() */
 		fd->entry[fd->num_entries].bus.csi2.vc = route->sink_pad;
 
 		if (source_fd.type == V4L2_MBUS_FRAME_DESC_TYPE_CSI2) {
@@ -2180,6 +2390,26 @@ static const struct regmap_config ub960_regmap_config = {
 	.max_register = 0xff,
 };
 
+static void ub960_soft_reset(struct ub960_data *priv)
+{
+	unsigned int i;
+
+	ub960_write(priv, UB960_SR_RESET, BIT(0));
+
+	for (i = 0; i < 10; ++i) {
+		int ret;
+		u8 v;
+
+		ret = ub960_read(priv, UB960_SR_RESET, &v);
+
+		if (ret || v == 0)
+			break;
+	}
+
+	/* suggested by hw team */
+	msleep(20);
+}
+
 static void ub960_sw_reset(struct ub960_data *priv)
 {
 	unsigned int i;
@@ -2265,9 +2495,14 @@ static int ub960_probe(struct i2c_client *client)
 	if (ret)
 		goto err_atr_probe;
 
+	/* Disable all RX ports by default */
+	ub960_write(priv, UB960_SR_RX_PORT_CTL, 0);
+
 	ret = ub960_parse_dt(priv);
 	if (ret)
 		goto err_parse_dt;
+
+	ub960_soft_reset(priv);
 
 	ret = ub960_rxport_probe_serializers(priv);
 	if (ret)
@@ -2303,8 +2538,7 @@ static int ub960_probe(struct i2c_client *client)
 		}
 
 		/* Disable GPIO3 as input */
-		ub960_update_bits_shared(priv, UB960_SR_GPIO_INPUT_CTL, BIT(3),
-					 0);
+		ub960_update_bits(priv, UB960_SR_GPIO_INPUT_CTL, BIT(3), 0);
 		/* Enable GPIO3 as output, active low interrupt */
 		ub960_write(priv, UB960_SR_GPIO_PIN_CTL(3), 0xd1);
 
