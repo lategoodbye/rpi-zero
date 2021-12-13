@@ -731,24 +731,24 @@ out:
 static int cal_start_streaming(struct vb2_queue *vq, unsigned int count)
 {
 	struct cal_ctx *ctx = vb2_get_drv_priv(vq);
+	struct media_pad *remote_pad;
 	struct cal_buffer *buf;
 	dma_addr_t addr;
 	int ret;
 
+	remote_pad = media_entity_remote_pad(&ctx->pad);
+	if (!remote_pad) {
+		ctx_err(ctx, "Context not connected\n");
+		ret = -ENODEV;
+		goto error_release_buffers;
+	}
+
 	if (cal_mc_api) {
 		struct v4l2_subdev_route *route = NULL;
 		struct v4l2_subdev_route *r;
-		struct media_pad *remote_pad;
 		struct v4l2_subdev_state *state;
 
 		/* Find the PHY connected to this video device */
-
-		remote_pad = media_entity_remote_pad(&ctx->pad);
-		if (!remote_pad) {
-			ctx_err(ctx, "Context not connected\n");
-			ret = -ENODEV;
-			goto error_release_buffers;
-		}
 
 		ctx->phy = cal_camerarx_get_phy_from_entity(remote_pad->entity);
 
@@ -815,7 +815,8 @@ static int cal_start_streaming(struct vb2_queue *vq, unsigned int count)
 	cal_ctx_set_dma_addr(ctx, addr);
 	cal_ctx_start(ctx);
 
-	ret = v4l2_subdev_call(&ctx->phy->subdev, video, s_stream, 1);
+	ret = v4l2_subdev_call(&ctx->phy->subdev, video, enable_streams,
+			       remote_pad->index, BIT(0));
 	if (ret)
 		goto error_stop;
 
@@ -840,10 +841,14 @@ error_release_buffers:
 static void cal_stop_streaming(struct vb2_queue *vq)
 {
 	struct cal_ctx *ctx = vb2_get_drv_priv(vq);
+	struct media_pad *remote_pad;
 
 	cal_ctx_stop(ctx);
 
-	v4l2_subdev_call(&ctx->phy->subdev, video, s_stream, 0);
+	remote_pad = media_entity_remote_pad(&ctx->pad);
+
+	v4l2_subdev_call(&ctx->phy->subdev, video, disable_streams,
+			 remote_pad->index, BIT(0));
 
 	pm_runtime_put_sync(ctx->cal->dev);
 

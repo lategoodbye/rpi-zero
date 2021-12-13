@@ -310,7 +310,7 @@ static void cal_camerarx_ppi_disable(struct cal_camerarx *phy)
 			0, CAL_CSI2_PPI_CTRL_IF_EN_MASK);
 }
 
-static int cal_camerarx_start(struct cal_camerarx *phy)
+static int cal_camerarx_start(struct cal_camerarx *phy, u32 pad, u32 stream)
 {
 	s64 link_freq;
 	u32 sscounter;
@@ -318,7 +318,19 @@ static int cal_camerarx_start(struct cal_camerarx *phy)
 	int ret;
 
 	if (phy->enable_count > 0) {
+		struct media_pad *remote_pad;
+
 		phy->enable_count++;
+
+		remote_pad = media_entity_remote_pad(&phy->pads[pad]);
+		ret = v4l2_subdev_call(phy->source, video, enable_streams,
+				       remote_pad->index, BIT(stream));
+
+		if (ret && ret != -ENOIOCTLCMD) {
+			phy_err(phy, "stream on failed in subdev\n");
+			return ret;
+		}
+
 		return 0;
 	}
 
@@ -420,12 +432,23 @@ static int cal_camerarx_start(struct cal_camerarx *phy)
 	 * Start the source to enable the CSI-2 HS clock. We can now wait for
 	 * CSI-2 PHY reset to complete.
 	 */
-	ret = v4l2_subdev_call(phy->source, video, s_stream, 1);
-	if (ret) {
-		v4l2_subdev_call(phy->source, core, s_power, 0);
-		cal_camerarx_disable_irqs(phy);
-		phy_err(phy, "stream on failed in subdev\n");
-		return ret;
+
+	{
+		struct media_pad *remote_pad;
+
+		remote_pad = media_entity_remote_pad(&phy->pads[pad]);
+		ret = v4l2_subdev_call(phy->source, video, enable_streams,
+				       remote_pad->index, BIT(stream));
+
+		if (ret && ret == -ENOIOCTLCMD)
+			ret = v4l2_subdev_call(phy->source, video, s_stream, 1);
+
+		if (ret) {
+			v4l2_subdev_call(phy->source, core, s_power, 0);
+			cal_camerarx_disable_irqs(phy);
+			phy_err(phy, "stream on failed in subdev\n");
+			return ret;
+		}
 	}
 
 	cal_camerarx_wait_reset(phy);
@@ -451,12 +474,22 @@ static int cal_camerarx_start(struct cal_camerarx *phy)
 	return 0;
 }
 
-static void cal_camerarx_stop(struct cal_camerarx *phy)
+static void cal_camerarx_stop(struct cal_camerarx *phy, u32 pad, u32 stream)
 {
 	int ret;
 
-	if (--phy->enable_count > 0)
+	if (--phy->enable_count > 0) {
+		struct media_pad *remote_pad;
+
+		remote_pad = media_entity_remote_pad(&phy->pads[pad]);
+		ret = v4l2_subdev_call(phy->source, video, disable_streams,
+				       remote_pad->index, BIT(stream));
+
+		if (ret && ret != -ENOIOCTLCMD)
+			phy_err(phy, "stream off failed in subdev\n");
+
 		return;
+	}
 
 	cal_camerarx_ppi_disable(phy);
 
@@ -476,8 +509,19 @@ static void cal_camerarx_stop(struct cal_camerarx *phy)
 	/* Disable the phy */
 	cal_camerarx_disable(phy);
 
-	if (v4l2_subdev_call(phy->source, video, s_stream, 0))
-		phy_err(phy, "stream off failed in subdev\n");
+	{
+		struct media_pad *remote_pad;
+
+		remote_pad = media_entity_remote_pad(&phy->pads[pad]);
+		ret = v4l2_subdev_call(phy->source, video, disable_streams,
+				       remote_pad->index, BIT(stream));
+
+		if (ret && ret == -ENOIOCTLCMD)
+			ret = v4l2_subdev_call(phy->source, video, s_stream, 0);
+
+		if (ret)
+			phy_err(phy, "stream off failed in subdev\n");
+	}
 
 	ret = v4l2_subdev_call(phy->source, core, s_power, 0);
 	if (ret < 0 && ret != -ENOIOCTLCMD && ret != -ENODEV)
@@ -664,21 +708,64 @@ cal_camerarx_get_phy_from_entity(struct media_entity *entity)
 	return to_cal_camerarx(sd);
 }
 
-static int cal_camerarx_sd_s_stream(struct v4l2_subdev *sd, int enable)
+static int cal_camerarx_sd_enable_streams(struct v4l2_subdev *sd, u32 pad,
+					  u64 streams_mask)
 {
 	struct cal_camerarx *phy = to_cal_camerarx(sd);
-	int ret = 0;
+	struct v4l2_subdev_state *state;
+	u32 other_pad, other_stream;
+	int ret;
+
+	if (WARN_ON(streams_mask != 1))
+		return -EINVAL;
+
+	state = v4l2_subdev_lock_active_state(sd);
+
+	ret = v4l2_subdev_routing_find_opposite_end(&state->routing, pad, 0,
+						    &other_pad, &other_stream);
+
+	v4l2_subdev_unlock_state(state);
+
+	if (ret)
+		return ret;
 
 	mutex_lock(&phy->mutex);
 
-	if (enable)
-		ret = cal_camerarx_start(phy);
-	else
-		cal_camerarx_stop(phy);
+	ret = cal_camerarx_start(phy, other_pad, other_stream);
 
 	mutex_unlock(&phy->mutex);
 
 	return ret;
+}
+
+static int cal_camerarx_sd_disable_streams(struct v4l2_subdev *sd, u32 pad,
+					   u64 streams_mask)
+{
+	struct cal_camerarx *phy = to_cal_camerarx(sd);
+	struct v4l2_subdev_state *state;
+	u32 other_pad, other_stream;
+	int ret;
+
+	if (WARN_ON(streams_mask != 1))
+		return -EINVAL;
+
+	state = v4l2_subdev_lock_active_state(sd);
+
+	ret = v4l2_subdev_routing_find_opposite_end(&state->routing, pad, 0,
+						    &other_pad, &other_stream);
+
+	v4l2_subdev_unlock_state(state);
+
+	if (ret)
+		return ret;
+
+	mutex_lock(&phy->mutex);
+
+	cal_camerarx_stop(phy, other_pad, other_stream);
+
+	mutex_unlock(&phy->mutex);
+
+	return 0;
 }
 
 static int cal_camerarx_sd_enum_mbus_code(struct v4l2_subdev *sd,
@@ -898,7 +985,8 @@ static int cal_camerarx_sd_init_cfg(struct v4l2_subdev *sd,
 }
 
 static const struct v4l2_subdev_video_ops cal_camerarx_video_ops = {
-	.s_stream = cal_camerarx_sd_s_stream,
+	.enable_streams = cal_camerarx_sd_enable_streams,
+	.disable_streams = cal_camerarx_sd_disable_streams,
 };
 
 static const struct v4l2_subdev_pad_ops cal_camerarx_pad_ops = {
