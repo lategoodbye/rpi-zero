@@ -474,6 +474,15 @@ enum v4l2_subdev_pre_streamon_flags {
  *
  * @post_streamoff: Called after streaming is stopped, but if and only if
  *	pre_streamon was called earlier.
+ *
+ * @enable_streams: Enable the streams defined in streams_mask on the given
+ *	source pad. A stream can be enabled only once, i.e. it is illegal
+ *	to try to enable a stream that has already been enabled without
+ *	first disabling it with disable_streams.
+ *
+ * @disable_streams: Disable the streams defined in streams_mask on the given
+ *	source pad. A stream has to have been enabled with enable_streams()
+ *	first.
  */
 struct v4l2_subdev_video_ops {
 	int (*s_routing)(struct v4l2_subdev *sd, u32 input, u32 output, u32 config);
@@ -502,6 +511,10 @@ struct v4l2_subdev_video_ops {
 			   unsigned int *size);
 	int (*pre_streamon)(struct v4l2_subdev *sd, u32 flags);
 	int (*post_streamoff)(struct v4l2_subdev *sd);
+	int (*enable_streams)(struct v4l2_subdev *sd, u32 pad,
+			      u64 streams_mask);
+	int (*disable_streams)(struct v4l2_subdev *sd, u32 pad,
+			       u64 streams_mask);
 };
 
 /**
