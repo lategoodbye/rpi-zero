@@ -1106,6 +1106,33 @@ void v4l2_subdev_unlock_state(struct v4l2_subdev_state *state)
 }
 EXPORT_SYMBOL_GPL(v4l2_subdev_unlock_state);
 
+int v4l2_subdev_set_routing(struct v4l2_subdev *sd,
+			    struct v4l2_subdev_state *state,
+			    struct v4l2_subdev_krouting *routing)
+{
+	struct v4l2_subdev_krouting *dst = &state->routing;
+	const struct v4l2_subdev_krouting *src = routing;
+
+	lockdep_assert_held(&state->lock);
+
+	kfree(dst->routes);
+	dst->routes = NULL;
+	dst->num_routes = 0;
+
+	if (src->num_routes > 0) {
+		dst->routes = kmemdup(src->routes,
+				      src->num_routes * sizeof(*src->routes),
+				      GFP_KERNEL);
+		if (!dst->routes)
+			return -ENOMEM;
+
+		dst->num_routes = src->num_routes;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(v4l2_subdev_set_routing);
+
 #endif /* CONFIG_MEDIA_CONTROLLER */
 
 void v4l2_subdev_init(struct v4l2_subdev *sd, const struct v4l2_subdev_ops *ops)
