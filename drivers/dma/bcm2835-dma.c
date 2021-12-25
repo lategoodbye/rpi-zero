@@ -36,6 +36,7 @@
 
 #define BCM2835_DMA_MAX_DMA_CHAN_SUPPORTED 14
 #define BCM2835_DMA_CHAN_NAME_SIZE 8
+#define BCM2711_DMA40_PHYS_ADDR 0x400000000ULL
 
 /**
  * struct bcm2835_dmadev - BCM2835 DMA controller
@@ -51,6 +52,10 @@ struct bcm2835_dmadev {
 	const struct bcm2835_dma_cfg *cfg;
 };
 
+struct common_dma_cb {
+	uint32_t rsvd[8];
+};
+
 struct bcm2835_dma_cb {
 	uint32_t info;
 	uint32_t src;
@@ -61,8 +66,19 @@ struct bcm2835_dma_cb {
 	uint32_t pad[2];
 };
 
+struct bcm2711_dma40_scb {
+	uint32_t ti;
+	uint32_t src;
+	uint32_t srci;
+	uint32_t dst;
+	uint32_t dsti;
+	uint32_t len;
+	uint32_t next_cb;
+	uint32_t rsvd;
+};
+
 struct bcm2835_cb_entry {
-	struct bcm2835_dma_cb *cb;
+	struct common_dma_cb *cb;
 	dma_addr_t paddr;
 };
 
@@ -93,16 +109,17 @@ struct bcm2835_dma_cfg {
 	u32 int_mask;
 	u32 active_mask;
 
-	u32 (*cb_get_length)(struct bcm2835_dma_cb *cb);
+	u32 (*cb_get_length)(void *cb);
+	dma_addr_t (*cb_get_addr)(void *cb, enum dma_transfer_direction);
 
-	void (*cb_init)(struct bcm2835_dma_cb *cb, struct bcm2835_chan *c,
+	void (*cb_init)(void *data, struct bcm2835_chan *c,
 			enum dma_transfer_direction, u32 src, u32 dst,
 			bool zero_page);
-	void (*cb_set_src)(struct bcm2835_dma_cb *cb, u32 src);
-	void (*cb_set_dst)(struct bcm2835_dma_cb *cb, u32 dst);
-	void (*cb_set_next)(struct bcm2835_dma_cb *cb, u32 next);
-	void (*cb_set_length)(struct bcm2835_dma_cb *cb, u32 length);
-	void (*cb_append_extra)(struct bcm2835_dma_cb *cb,
+	void (*cb_set_src)(void *data, enum dma_transfer_direction, u32 src);
+	void (*cb_set_dst)(void *data, enum dma_transfer_direction, u32 dst);
+	void (*cb_set_next)(void *data, u32 next);
+	void (*cb_set_length)(void *data, u32 length);
+	void (*cb_append_extra)(void *data,
 				struct bcm2835_chan *c,
 				enum dma_transfer_direction direction,
 				bool cyclic, bool final, unsigned long flags);
@@ -200,6 +217,49 @@ struct bcm2835_desc {
 #define BCM2835_DMA_CHAN(n)	((n) << 8) /* Base address */
 #define BCM2835_DMA_CHANIO(base, n) ((base) + BCM2835_DMA_CHAN(n))
 
+/* 40-bit DMA support */
+#define BCM2711_DMA40_CS	0x00
+#define BCM2711_DMA40_CB	0x04
+#define BCM2711_DMA40_DEBUG	0x0c
+#define BCM2711_DMA40_TI	0x10
+#define BCM2711_DMA40_SRC	0x14
+#define BCM2711_DMA40_SRCI	0x18
+#define BCM2711_DMA40_DEST	0x1c
+#define BCM2711_DMA40_DESTI	0x20
+#define BCM2711_DMA40_LEN	0x24
+#define BCM2711_DMA40_NEXT_CB	0x28
+#define BCM2711_DMA40_DEBUG2	0x2c
+
+#define BCM2711_DMA40_ACTIVE		BIT(0)
+#define BCM2711_DMA40_END		BIT(1)
+#define BCM2711_DMA40_INT		BIT(2)
+#define BCM2711_DMA40_DREQ		BIT(3)  /* DREQ state */
+#define BCM2711_DMA40_RD_PAUSED		BIT(4)  /* Reading is paused */
+#define BCM2711_DMA40_WR_PAUSED		BIT(5)  /* Writing is paused */
+#define BCM2711_DMA40_DREQ_PAUSED	BIT(6)  /* Is paused by DREQ flow control */
+#define BCM2711_DMA40_WAITING_FOR_WRITES BIT(7)  /* Waiting for last write */
+#define BCM2711_DMA40_ERR		BIT(10)
+#define BCM2711_DMA40_QOS(x)		(((x) & 0x1f) << 16)
+#define BCM2711_DMA40_PANIC_QOS(x)	(((x) & 0x1f) << 20)
+#define BCM2711_DMA40_WAIT_FOR_WRITES	BIT(28)
+#define BCM2711_DMA40_DISDEBUG		BIT(29)
+#define BCM2711_DMA40_ABORT		BIT(30)
+#define BCM2711_DMA40_HALT		BIT(31)
+
+/* Transfer information bits */
+#define BCM2711_DMA40_INTEN		BIT(0)
+#define BCM2711_DMA40_TDMODE		BIT(1) /* 2D-Mode */
+#define BCM2711_DMA40_WAIT_RESP		BIT(2) /* wait for AXI write to be acked */
+#define BCM2711_DMA40_WAIT_RD_RESP	BIT(3) /* wait for AXI read to complete */
+#define BCM2711_DMA40_PER_MAP(x)	((x & 31) << 9) /* REQ source */
+#define BCM2711_DMA40_S_DREQ		BIT(14) /* enable SREQ for source */
+#define BCM2711_DMA40_D_DREQ		BIT(15) /* enable DREQ for destination */
+#define BCM2711_DMA40_S_WAIT(x)		((x & 0xff) << 16) /* add DMA read-wait cycles */
+#define BCM2711_DMA40_D_WAIT(x)		((x & 0xff) << 24) /* add DMA write-wait cycles */
+
+#define BCM2711_DMA40_INC		BIT(12)
+#define BCM2711_DMA40_IGNORE		BIT(15)
+
 /* the max dma length for different channels */
 #define MAX_DMA_LEN SZ_1G
 #define MAX_LITE_DMA_LEN (SZ_64K - 4)
@@ -292,6 +352,53 @@ static u32 bcm2835_dma_prepare_cb_extra(struct bcm2835_chan *c,
 	return result;
 }
 
+static u32 bcm2711_dma_prepare_cb_info(struct bcm2835_chan *c,
+				       enum dma_transfer_direction direction,
+				       bool zero_page)
+{
+	u32 result;
+
+	if (direction == DMA_MEM_TO_MEM)
+		return 0;
+
+	result = BCM2711_DMA40_WAIT_RESP;
+
+	/* Setup DREQ channel */
+	if (c->dreq != 0)
+		result |= BCM2711_DMA40_PER_MAP(c->dreq);
+
+	if (direction == DMA_DEV_TO_MEM) {
+		result |= BCM2711_DMA40_S_DREQ | BCM2711_DMA40_WAIT_RD_RESP;
+	} else {
+		result |= BCM2711_DMA40_D_DREQ;
+	}
+
+	return result;
+}
+
+static u32 bcm2711_dma_prepare_cb_extra(struct bcm2835_chan *c,
+					enum dma_transfer_direction direction,
+					bool cyclic, bool final,
+					unsigned long flags)
+{
+	u32 result = 0;
+
+	if (cyclic) {
+		if (flags & DMA_PREP_INTERRUPT)
+			result |= BCM2711_DMA40_INTEN;
+	} else {
+		if (!final)
+			return 0;
+
+		result |= BCM2711_DMA40_INTEN;
+
+		if (direction == DMA_MEM_TO_MEM)
+			result |= BCM2711_DMA40_WAIT_RESP;
+	}
+
+	return result;
+}
+
 static inline bool need_src_incr(enum dma_transfer_direction direction)
 {
 	return direction != DMA_DEV_TO_MEM;
@@ -310,16 +417,31 @@ static inline bool need_dst_incr(enum dma_transfer_direction direction)
 	return false;
 }
 
-static inline u32 bcm2835_dma_cb_get_length(struct bcm2835_dma_cb *cb)
+static inline u32 bcm2835_dma_cb_get_length(void *data)
 {
+	struct bcm2835_dma_cb *cb = data;
+
 	return cb->length;
 }
 
+static inline dma_addr_t
+bcm2835_dma_cb_get_addr(void *data, enum dma_transfer_direction direction)
+{
+	struct bcm2835_dma_cb *cb = data;
+
+	if (direction == DMA_DEV_TO_MEM)
+		return cb->dst;
+
+	return cb->src;
+}
+
 static inline void
-bcm2835_dma_cb_init(struct bcm2835_dma_cb *cb, struct bcm2835_chan *c,
+bcm2835_dma_cb_init(void *data, struct bcm2835_chan *c,
 		    enum dma_transfer_direction direction, u32 src, u32 dst,
 		    bool zero_page)
 {
+	struct bcm2835_dma_cb *cb = data;
+
 	cb->info = bcm2835_dma_prepare_cb_info(c, direction, zero_page);
 	cb->src = src;
 	cb->dst = dst;
@@ -327,31 +449,41 @@ bcm2835_dma_cb_init(struct bcm2835_dma_cb *cb, struct bcm2835_chan *c,
 	cb->next = 0;
 }
 
-static inline void bcm2835_dma_cb_set_src(struct bcm2835_dma_cb *cb, u32 src)
+static inline void bcm2835_dma_cb_set_src(void *data, enum dma_transfer_direction direction, u32 src)
 {
+	struct bcm2835_dma_cb *cb = data;
+
 	cb->src = src;
 }
 
-static inline void bcm2835_dma_cb_set_dst(struct bcm2835_dma_cb *cb, u32 dst)
+static inline void bcm2835_dma_cb_set_dst(void *data, enum dma_transfer_direction direction, u32 dst)
 {
+	struct bcm2835_dma_cb *cb = data;
+
 	cb->dst = dst;
 }
 
-static inline void bcm2835_dma_cb_set_next(struct bcm2835_dma_cb *cb, u32 next)
+static inline void bcm2835_dma_cb_set_next(void *data, u32 next)
 {
+	struct bcm2835_dma_cb *cb = data;
+
 	cb->next = next;
 }
 
-static inline void bcm2835_dma_cb_set_length(struct bcm2835_dma_cb *cb, u32 length)
+static inline void bcm2835_dma_cb_set_length(void *data, u32 length)
 {
+	struct bcm2835_dma_cb *cb = data;
+
 	cb->length = length;
 }
 
 static inline void
-bcm2835_dma_cb_append_extra(struct bcm2835_dma_cb *cb, struct bcm2835_chan *c,
+bcm2835_dma_cb_append_extra(void *data, struct bcm2835_chan *c,
 			    enum dma_transfer_direction direction,
 			    bool cyclic, bool final, unsigned long flags)
 {
+	struct bcm2835_dma_cb *cb = data;
+
 	cb->info |= bcm2835_dma_prepare_cb_extra(c, direction, cyclic, final,
 						 flags);
 }
@@ -379,6 +511,116 @@ static dma_addr_t bcm2835_dma_read_addr(struct bcm2835_chan *c,
 	return 0;
 }
 
+static inline u32 bcm2711_dma_cb_get_length(void *data)
+{
+	struct bcm2711_dma40_scb *scb = data;
+
+	return scb->len;
+}
+
+static inline dma_addr_t
+bcm2711_dma_cb_get_addr(void *data, enum dma_transfer_direction direction)
+{
+	struct bcm2711_dma40_scb *scb = data;
+
+	if (direction == DMA_DEV_TO_MEM)
+		return scb->dst + ((scb->dsti & 0xff) << 8);
+
+	return scb->src + ((scb->srci & 0xff) << 8);
+}
+
+static inline void
+bcm2711_dma_cb_init(void *data, struct bcm2835_chan *c,
+		    enum dma_transfer_direction direction, u32 src, u32 dst,
+		    bool zero_page)
+{
+	struct bcm2711_dma40_scb *scb = data;
+
+	scb->ti = bcm2711_dma_prepare_cb_info(c, direction, zero_page);
+	scb->src = lower_32_bits(src);
+	scb->srci = upper_32_bits(src);
+
+	if (need_src_incr(direction))
+		scb->srci |= BCM2711_DMA40_INC;
+
+	scb->dst = lower_32_bits(dst);
+	scb->dsti = upper_32_bits(dst);
+
+	if (need_dst_incr(direction))
+		scb->dsti |= BCM2711_DMA40_INC;
+
+	scb->next_cb = 0;
+}
+
+static inline void bcm2711_dma_cb_set_src(void *data, enum dma_transfer_direction direction, u32 src)
+{
+	struct bcm2711_dma40_scb *scb = data;
+
+	scb->src = lower_32_bits(src);
+	scb->srci = upper_32_bits(src);
+
+	if (need_src_incr(direction))
+		scb->srci |= BCM2711_DMA40_INC;
+}
+
+static inline void bcm2711_dma_cb_set_dst(void *data, enum dma_transfer_direction direction, u32 dst)
+{
+	struct bcm2711_dma40_scb *scb = data;
+
+	scb->dst = lower_32_bits(dst);
+	scb->dsti = upper_32_bits(dst);
+
+	if (need_dst_incr(direction))
+		scb->dsti |= BCM2711_DMA40_INC;
+}
+
+static inline void bcm2711_dma_cb_set_next(void *data, u32 next)
+{
+	struct bcm2711_dma40_scb *scb = data;
+
+	scb->next_cb = next;
+}
+
+static inline void bcm2711_dma_cb_set_length(void *data, u32 length)
+{
+	struct bcm2711_dma40_scb *scb = data;
+
+	scb->len = length;
+}
+
+static inline void
+bcm2711_dma_cb_append_extra(void *data, struct bcm2835_chan *c,
+			    enum dma_transfer_direction direction,
+			    bool cyclic, bool final, unsigned long flags)
+{
+	struct bcm2711_dma40_scb *scb = data;
+
+	scb->ti |= bcm2711_dma_prepare_cb_extra(c, direction, cyclic, final,
+						flags);
+}
+
+static inline dma_addr_t bcm2711_dma_to_cb_addr(dma_addr_t addr)
+{
+	return (addr >> 5);
+}
+
+static void bcm2711_dma_chan_plat_init(struct bcm2835_chan *c)
+{
+}
+
+static dma_addr_t bcm2711_dma_read_addr(struct bcm2835_chan *c,
+					enum dma_transfer_direction direction)
+{
+	if (direction == DMA_MEM_TO_DEV)
+		return readl(c->chan_base + BCM2711_DMA40_SRC) +
+			((readl(c->chan_base + BCM2711_DMA40_SRCI) & 0xff) << 8);
+	else if (direction == DMA_DEV_TO_MEM)
+		return readl(c->chan_base + BCM2711_DMA40_DEST) +
+			((readl(c->chan_base + BCM2711_DMA40_DESTI) & 0xff) << 8);
+
+	return 0;
+}
+
 static void bcm2835_dma_free_cb_chain(struct bcm2835_desc *desc)
 {
 	size_t i;
@@ -396,22 +638,25 @@ static void bcm2835_dma_desc_free(struct virt_dma_desc *vd)
 		container_of(vd, struct bcm2835_desc, vd));
 }
 
-static void bcm2835_dma_create_cb_set_length(
-	struct bcm2835_chan *c,
-	struct bcm2835_dma_cb *control_block,
+static bool bcm2835_dma_create_cb_set_length(
+	struct dma_chan *chan,
+	void *data,
 	size_t len,
 	size_t period_len,
-	size_t *total_len,
-	u32 finalextrainfo)
+	size_t *total_len)
 {
+	const struct bcm2835_dma_cfg *cfg = to_bcm2835_cfg(chan->device);
+	struct bcm2835_chan *c = to_bcm2835_dma_chan(chan);
 	size_t max_len = bcm2835_dma_max_frame_length(c);
-
 	/* set the length taking lite-channel limitations into account */
-	control_block->length = min_t(u32, len, max_len);
+	u32 length = min_t(u32, len, max_len);
+
+	cfg->cb_set_length(data, length);
 
 	/* finished if we have no period_length */
-	if (!period_len)
-		return;
+	if (!period_len) {
+		return false;
+	}
 
 	/*
 	 * period_len means: that we need to generate
@@ -422,20 +667,19 @@ static void bcm2835_dma_create_cb_set_length(
 	 */
 
 	/* have we filled in period_length yet? */
-	if (*total_len + control_block->length < period_len) {
+	if (*total_len + length < period_len) {
 		/* update number of bytes in this period so far */
-		*total_len += control_block->length;
-		return;
+		*total_len += length;
+		return false;
 	}
 
 	/* calculate the length that remains to reach period_length */
-	control_block->length = period_len - *total_len;
+	cfg->cb_set_length(data, period_len - *total_len);
 
 	/* reset total_length for next period */
 	*total_len = 0;
 
-	/* add extrainfo bits in info */
-	control_block->info |= finalextrainfo;
+	return true;
 }
 
 static inline size_t bcm2835_dma_count_frames_for_sg(
@@ -483,9 +727,7 @@ static struct bcm2835_desc *bcm2835_dma_create_cb_chain(
 	size_t frame;
 	struct bcm2835_desc *d;
 	struct bcm2835_cb_entry *cb_entry;
-	struct bcm2835_dma_cb *control_block;
-	u32 extrainfo = bcm2835_dma_prepare_cb_extra(c, direction, cyclic,
-						     false, flags);
+	struct common_dma_cb *control_block;
 	bool zero_page = false;
 
 	if (!frames)
@@ -526,10 +768,13 @@ static struct bcm2835_desc *bcm2835_dma_create_cb_chain(
 		/* set up length in control_block if requested */
 		if (buf_len) {
 			/* calculate length honoring period_length */
-			bcm2835_dma_create_cb_set_length(
-				c, control_block,
-				len, period_len, &total_len,
-				extrainfo);
+			if (bcm2835_dma_create_cb_set_length(chan,
+							     control_block,
+							     len, period_len,
+							     &total_len)) {
+				cfg->cb_append_extra(control_block, c, direction,
+						     cyclic, false, flags);
+			}
 
 			/* calculate new remaining length */
 			len -= cfg->cb_get_length(control_block);
@@ -537,7 +782,7 @@ static struct bcm2835_desc *bcm2835_dma_create_cb_chain(
 
 		/* link this the last controlblock */
 		if (frame)
-			d->cb_list[frame - 1].cb->next = cb_entry->paddr;
+			cfg->cb_set_next(d->cb_list[frame - 1].cb, cb_entry->paddr);
 
 		/* update src and dst and length */
 		if (src && need_src_incr(direction))
@@ -550,9 +795,8 @@ static struct bcm2835_desc *bcm2835_dma_create_cb_chain(
 	}
 
 	/* the last frame requires extra flags */
-	extrainfo = bcm2835_dma_prepare_cb_extra(c, direction, cyclic, true,
-						 flags);
-	d->cb_list[d->frames - 1].cb->info |= extrainfo;
+	cfg->cb_append_extra(d->cb_list[d->frames - 1].cb, c, direction, cyclic,
+			     true, flags);
 
 	/* detect a size missmatch */
 	if (buf_len && (d->size != buf_len))
@@ -585,9 +829,9 @@ static void bcm2835_dma_fill_cb_chain_with_sg(
 		     len > 0;
 		     addr += cfg->cb_get_length(cb->cb), len -= cfg->cb_get_length(cb->cb), cb++) {
 			if (direction == DMA_DEV_TO_MEM)
-				cfg->cb_set_dst(cb->cb, addr);
+				cfg->cb_set_dst(cb->cb, direction, addr);
 			else
-				cfg->cb_set_src(cb->cb, addr);
+				cfg->cb_set_src(cb->cb, direction, addr);
 			cfg->cb_set_length(cb->cb, min(len, max_len));
 		}
 	}
@@ -726,20 +970,16 @@ static size_t bcm2835_dma_desc_size(struct bcm2835_desc *d)
 	return d->size;
 }
 
-static size_t bcm2835_dma_desc_size_pos(struct bcm2835_desc *d, dma_addr_t addr)
+static size_t bcm2835_dma_desc_size_pos(const struct bcm2835_dma_cfg *cfg,
+					struct bcm2835_desc *d, dma_addr_t addr)
 {
 	unsigned int i;
 	size_t size;
 
 	for (size = i = 0; i < d->frames; i++) {
-		struct bcm2835_dma_cb *control_block = d->cb_list[i].cb;
-		size_t this_size = control_block->length;
-		dma_addr_t dma;
-
-		if (d->dir == DMA_DEV_TO_MEM)
-			dma = control_block->dst;
-		else
-			dma = control_block->src;
+		struct common_dma_cb *control_block = d->cb_list[i].cb;
+		size_t this_size = cfg->cb_get_length(control_block);
+		dma_addr_t dma = cfg->cb_get_addr(control_block, d->dir);
 
 		if (size)
 			size += this_size;
@@ -773,7 +1013,7 @@ static enum dma_status bcm2835_dma_tx_status(struct dma_chan *chan,
 		dma_addr_t pos;
 
 		pos = cfg->read_addr(c, d->dir);
-		txstate->residue = bcm2835_dma_desc_size_pos(d, pos);
+		txstate->residue = bcm2835_dma_desc_size_pos(cfg, d, pos);
 	} else {
 		txstate->residue = 0;
 	}
@@ -1022,6 +1262,7 @@ static const struct bcm2835_dma_cfg bcm2835_data = {
 	.active_mask = BCM2835_DMA_ACTIVE,
 
 	.cb_get_length = bcm2835_dma_cb_get_length,
+	.cb_get_addr = bcm2835_dma_cb_get_addr,
 	.cb_init = bcm2835_dma_cb_init,
 	.cb_set_src = bcm2835_dma_cb_set_src,
 	.cb_set_dst = bcm2835_dma_cb_set_dst,
@@ -1035,8 +1276,35 @@ static const struct bcm2835_dma_cfg bcm2835_data = {
 	.read_addr = bcm2835_dma_read_addr,
 };
 
+static const struct bcm2835_dma_cfg bcm2711_data = {
+	.addr_offset = BCM2711_DMA40_PHYS_ADDR,
+
+	.cs_reg = BCM2711_DMA40_CS,
+	.cb_reg = BCM2711_DMA40_CB,
+
+	.wait_mask = BCM2835_DMA_WAITING_FOR_WRITES,
+	.reset_mask = BCM2835_DMA_RESET,
+	.int_mask = BCM2835_DMA_INT,
+	.active_mask = BCM2835_DMA_ACTIVE,
+
+	.cb_get_length = bcm2711_dma_cb_get_length,
+	.cb_get_addr = bcm2711_dma_cb_get_addr,
+	.cb_init = bcm2711_dma_cb_init,
+	.cb_set_src = bcm2711_dma_cb_set_src,
+	.cb_set_dst = bcm2711_dma_cb_set_dst,
+	.cb_set_next = bcm2711_dma_cb_set_next,
+	.cb_set_length = bcm2711_dma_cb_set_length,
+	.cb_append_extra = bcm2711_dma_cb_append_extra,
+
+	.to_cb_addr = bcm2711_dma_to_cb_addr,
+
+	.chan_plat_init = bcm2711_dma_chan_plat_init,
+	.read_addr = bcm2711_dma_read_addr,
+};
+
 static const struct of_device_id bcm2835_dma_of_match[] = {
 	{ .compatible = "brcm,bcm2835-dma", .data = &bcm2835_data },
+	{ .compatible = "brcm,bcm2711-dma", .data = &bcm2711_data },
 	{},
 };
 MODULE_DEVICE_TABLE(of, bcm2835_dma_of_match);
