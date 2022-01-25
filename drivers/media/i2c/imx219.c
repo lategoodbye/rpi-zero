@@ -1509,6 +1509,7 @@ error_out:
 static int imx219_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
+	struct v4l2_subdev *sd;
 	struct imx219 *imx219;
 	int ret;
 
@@ -1516,7 +1517,8 @@ static int imx219_probe(struct i2c_client *client)
 	if (!imx219)
 		return -ENOMEM;
 
-	v4l2_i2c_subdev_init(&imx219->sd, client, &imx219_subdev_ops);
+	sd = &imx219->sd;
+	v4l2_i2c_subdev_init(sd, client, &imx219_subdev_ops);
 
 	/* Check the hardware configuration in device tree */
 	if (imx219_check_hwcfg(dev))
@@ -1583,10 +1585,10 @@ static int imx219_probe(struct i2c_client *client)
 		goto error_power_off;
 
 	/* Initialize subdev */
-	imx219->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE |
-			    V4L2_SUBDEV_FL_HAS_EVENTS |
-			    V4L2_SUBDEV_FL_MULTIPLEXED;
-	imx219->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
+	sd->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE |
+		     V4L2_SUBDEV_FL_HAS_EVENTS |
+		     V4L2_SUBDEV_FL_MULTIPLEXED;
+	sd->entity.function = MEDIA_ENT_F_CAM_SENSOR;
 
 	/* Initialize source pad */
 	imx219->pad.flags = MEDIA_PAD_FL_SOURCE;
@@ -1594,13 +1596,13 @@ static int imx219_probe(struct i2c_client *client)
 	/* Initialize default format */
 	imx219_set_default_format(imx219);
 
-	ret = media_entity_pads_init(&imx219->sd.entity, 1, &imx219->pad);
+	ret = media_entity_pads_init(&sd->entity, 1, &imx219->pad);
 	if (ret) {
 		dev_err(dev, "failed to init entity pads: %d\n", ret);
 		goto error_handler_free;
 	}
 
-	ret = v4l2_async_register_subdev_sensor(&imx219->sd);
+	ret = v4l2_async_register_subdev_sensor(sd);
 	if (ret < 0) {
 		dev_err(dev, "failed to register sensor sub-device: %d\n", ret);
 		goto error_media_entity;
@@ -1614,7 +1616,7 @@ static int imx219_probe(struct i2c_client *client)
 	return 0;
 
 error_media_entity:
-	media_entity_cleanup(&imx219->sd.entity);
+	media_entity_cleanup(&sd->entity);
 
 error_handler_free:
 	imx219_free_controls(imx219);
