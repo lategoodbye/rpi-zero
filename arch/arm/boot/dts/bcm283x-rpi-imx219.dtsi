@@ -1,0 +1,102 @@
+// SPDX-License-Identifier: GPL-2.0
+#include <dt-bindings/clock/bcm2835.h>
+
+/ {
+	compatible = "brcm,bcm2835";
+
+	imx219_vdig: fixedregulator@1 {
+		compatible = "regulator-fixed";
+		regulator-name = "imx219_vdig";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+	};
+
+	imx219_vddl: fixedregulator@2 {
+		compatible = "regulator-fixed";
+		regulator-name = "imx219_vddl";
+		regulator-min-microvolt = <1200000>;
+		regulator-max-microvolt = <1200000>;
+	};
+
+	imx219_clk: imx219_clk {
+		#clock-cells = <0>;
+		compatible = "fixed-clock";
+		clock-frequency = <24000000>;
+		clock-output-names = "24MHz-clock";
+	};
+
+	cam1_reg: cam1_reg {
+		compatible = "regulator-fixed";
+		regulator-name = "imx219_vana";
+		enable-active-high;
+		status = "okay";
+		gpio = <&expgpio 5 GPIO_ACTIVE_HIGH>;
+	};
+
+	i2c0mux {
+		compatible = "i2c-mux-pinctrl";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		i2c-parent = <&i2c0>;
+
+		pinctrl-names = "i2c0", "i2c_csi_dsi";
+		pinctrl-0 = <&i2c0_gpio0>;
+		pinctrl-1 = <&i2c0_gpio44>;
+
+		i2c@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			imx219: sensor@10 {
+				compatible = "sony,imx219";
+				reg = <0x10>;
+				status = "okay";
+
+				clocks = <&imx219_clk>;
+				clock-names = "xclk";
+
+				VANA-supply = <&cam1_reg>;   /* 2.8v */
+				VDIG-supply = <&imx219_vdig>;   /* 1.8v */
+				VDDL-supply = <&imx219_vddl>;   /* 1.2v */
+
+				rotation = <0>;
+				orientation = <0>;
+
+				port {
+					imx219_0: endpoint {
+						remote-endpoint = <&csi1_ep>;
+						clock-lanes = <0>;
+						data-lanes = <1 2>;
+						clock-noncontinuous;
+						link-frequencies = /bits/ 64 <456000000>;
+					};
+				};
+			};
+		};
+	};
+};
+
+&csi1 {
+	status="okay";
+	num-data-lanes = <2>;
+	port {
+		csi1_ep: endpoint {
+			remote-endpoint = <&imx219_0>;
+			data-lanes = <1 2>;
+			clock-lanes = <0>;
+		};
+	};
+};
+
+&i2c0 {
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+};
+
