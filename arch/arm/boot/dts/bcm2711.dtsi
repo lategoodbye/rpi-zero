@@ -293,28 +293,6 @@
 			interrupts = <GIC_SPI 97 IRQ_TYPE_LEVEL_HIGH>;
 		};
 
-		csi0: csi@7e800000 {
-			compatible = "brcm,bcm2835-unicam";
-			reg = <0x7e800000 0x800>,
-			      <0x7e802000 0x4>;
-			reg-names = "unicam", "cmi";
-			interrupts = <GIC_SPI 102 IRQ_TYPE_LEVEL_HIGH>;
-			status = "disabled";
-			port {
-			};
-		};
-
-		csi1: csi@7e801000 {
-			compatible = "brcm,bcm2835-unicam";
-			reg = <0x7e801000 0x800>,
-			      <0x7e802004 0x4>;
-			reg-names = "unicam", "cmi";
-			interrupts = <GIC_SPI 103 IRQ_TYPE_LEVEL_HIGH>;
-			status = "disabled";
-			port {
-			};
-		};
-
 		pixelvalve3: pixelvalve@7ec12000 {
 			compatible = "brcm,bcm2711-pixelvalve3";
 			reg = <0x7ec12000 0x100>;
@@ -1056,6 +1034,14 @@
 
 &rmem {
 	#address-cells = <2>;
+};
+
+&csi0 {
+	interrupts = <GIC_SPI 102 IRQ_TYPE_LEVEL_HIGH>;
+};
+
+&csi1 {
+	interrupts = <GIC_SPI 103 IRQ_TYPE_LEVEL_HIGH>;
 };
 
 &cma {
