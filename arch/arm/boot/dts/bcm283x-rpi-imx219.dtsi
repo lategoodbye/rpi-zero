@@ -82,6 +82,10 @@
 	};
 };
 
+&cma {
+	size = <0x10000000>; /* 256MB */
+};
+
 &csi1 {
 	status="okay";
 	brcm,num-data-lanes = <2>;
