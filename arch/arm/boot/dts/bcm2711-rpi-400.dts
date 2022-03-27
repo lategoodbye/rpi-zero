@@ -25,6 +25,10 @@
 	};
 };
 
+&emmc2bus {
+	dma-ranges = <0x0 0x00000000  0x0 0x00000000  0xfc000000>;
+};
+
 &expgpio {
 	gpio-line-names = "BT_ON",
 			  "WL_ON",
@@ -38,6 +42,10 @@
 
 &genet_mdio {
 	clock-frequency = <1950000>;
+};
+
+&pcie0 {
+	dma-ranges = <0x02000000 0x0 0x00000000 0x0 0x00000000 0x1 0x00000000>;
 };
 
 &pm {
