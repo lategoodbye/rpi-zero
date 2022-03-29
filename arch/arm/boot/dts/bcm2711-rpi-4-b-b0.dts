@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: GPL-2.0
+/dts-v1/;
+#include "bcm2711-rpi-4-b.dts"
+
+&emmc2bus {
+	/*
+	 * emmc2 on initial SoC revision (only assembled on RPi 4 B)
+	 * has different DMA constraints.
+	 */
+	dma-ranges = <0x0 0xc0000000  0x0 0x00000000  0x40000000>;
+};
+
+&pcie0 {
+	/*
+	 * The wrapper around the PCIe block has a bug
+	 * preventing it from accessing beyond the first 3GB of
+	 * memory.
+	 */
+	dma-ranges = <0x02000000 0x0 0x00000000 0x0 0x00000000
+				      0x0 0xc0000000>;
+};
+

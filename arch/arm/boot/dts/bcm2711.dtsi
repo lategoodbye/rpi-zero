@@ -419,7 +419,7 @@
 		#size-cells = <1>;
 
 		ranges = <0x0 0x7e000000  0x0 0xfe000000  0x01800000>;
-		dma-ranges = <0x0 0xc0000000  0x0 0x00000000  0x40000000>;
+		dma-ranges = <0x0 0x00000000  0x0 0x00000000  0xfc000000>;
 
 		emmc2: mmc@7e340000 {
 			compatible = "brcm,bcm2711-emmc2";
@@ -523,13 +523,8 @@
 
 			ranges = <0x02000000 0x0 0xf8000000 0x6 0x00000000
 				  0x0 0x04000000>;
-			/*
-			 * The wrapper around the PCIe block has a bug
-			 * preventing it from accessing beyond the first 3GB of
-			 * memory.
-			 */
 			dma-ranges = <0x02000000 0x0 0x00000000 0x0 0x00000000
-				      0x0 0xc0000000>;
+				      0x1 0x00000000>;
 			brcm,enable-ssc;
 		};
 
