@@ -632,6 +632,7 @@ static int bcm2835_power_probe(struct platform_device *pdev)
 	power->dev = dev;
 	power->base = pm->base;
 	power->asb = pm->asb;
+	power->rpivid_asb = pm->rpivid_asb;
 
 	id = readl(power->asb + ASB_AXI_BRDG_ID);
 	if (id != BCM2835_BRDG_ID /* "BRDG" */) {
@@ -639,7 +640,7 @@ static int bcm2835_power_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	if (pm->rpivid_asb) {
+	if (power->rpivid_asb) {
 		id = readl(power->rpivid_asb + ASB_AXI_BRDG_ID);
 		if (id != BCM2835_BRDG_ID /* "BRDG" */) {
 			dev_err(dev, "RPiVid ASB register ID returned 0x%08x\n",
