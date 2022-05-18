@@ -1045,8 +1045,8 @@ add_completion(struct vchiq_instance *instance, enum vchiq_reason reason,
 }
 
 enum vchiq_status
-service_callback(enum vchiq_reason reason, struct vchiq_header *header,
-		 unsigned int handle, void *bulk_userdata)
+service_callback(struct vchiq_instance *instance, enum vchiq_reason reason,
+		 struct vchiq_header *header, unsigned int handle, void *bulk_userdata)
 {
 	/*
 	 * How do we ensure the callback goes to the right client?
@@ -1056,7 +1056,6 @@ service_callback(enum vchiq_reason reason, struct vchiq_header *header,
 	 */
 	struct user_service *user_service;
 	struct vchiq_service *service;
-	struct vchiq_instance *instance;
 	bool skip_completion = false;
 
 	DEBUG_INITIALISE(g_state.local);
@@ -1071,7 +1070,6 @@ service_callback(enum vchiq_reason reason, struct vchiq_header *header,
 	}
 
 	user_service = (struct user_service *)service->base.userdata;
-	instance = user_service->instance;
 
 	if (!instance || instance->closing) {
 		rcu_read_unlock();
@@ -1317,7 +1315,8 @@ vchiq_get_state(void)
  */
 
 static enum vchiq_status
-vchiq_keepalive_vchiq_callback(enum vchiq_reason reason,
+vchiq_keepalive_vchiq_callback(struct vchiq_instance *instance,
+			       enum vchiq_reason reason,
 			       struct vchiq_header *header,
 			       unsigned int service_user, void *bulk_user)
 {
