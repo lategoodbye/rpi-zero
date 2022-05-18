@@ -822,7 +822,7 @@ vchiq_open_service(struct vchiq_instance *instance,
 		*phandle = service->handle;
 		status = vchiq_open_service_internal(service, current->pid);
 		if (status != VCHIQ_SUCCESS) {
-			vchiq_remove_service(service->handle);
+			vchiq_remove_service(instance, service->handle);
 			*phandle = VCHIQ_SERVICE_HANDLE_INVALID;
 		}
 	}
@@ -918,7 +918,7 @@ vchiq_blocking_bulk_transfer(struct vchiq_instance *instance, unsigned int handl
 	struct bulk_waiter_node *waiter = NULL;
 	bool found = false;
 
-	service = find_service_by_handle(handle);
+	service = find_service_by_handle(instance, handle);
 	if (!service)
 		return VCHIQ_ERROR;
 
@@ -1385,14 +1385,14 @@ vchiq_keepalive_thread_func(void *v)
 		 */
 		while (uc--) {
 			atomic_inc(&arm_state->ka_use_ack_count);
-			status = vchiq_use_service(ka_handle);
+			status = vchiq_use_service(instance, ka_handle);
 			if (status != VCHIQ_SUCCESS) {
 				vchiq_log_error(vchiq_susp_log_level,
 						"%s vchiq_use_service error %d", __func__, status);
 			}
 		}
 		while (rc--) {
-			status = vchiq_release_service(ka_handle);
+			status = vchiq_release_service(instance, ka_handle);
 			if (status != VCHIQ_SUCCESS) {
 				vchiq_log_error(vchiq_susp_log_level,
 						"%s vchiq_release_service error %d", __func__,
@@ -1588,10 +1588,10 @@ vchiq_instance_set_trace(struct vchiq_instance *instance, int trace)
 }
 
 enum vchiq_status
-vchiq_use_service(unsigned int handle)
+vchiq_use_service(struct vchiq_instance *instance, unsigned int handle)
 {
 	enum vchiq_status ret = VCHIQ_ERROR;
-	struct vchiq_service *service = find_service_by_handle(handle);
+	struct vchiq_service *service = find_service_by_handle(instance, handle);
 
 	if (service) {
 		ret = vchiq_use_internal(service->state, service, USE_TYPE_SERVICE);
@@ -1602,10 +1602,10 @@ vchiq_use_service(unsigned int handle)
 EXPORT_SYMBOL(vchiq_use_service);
 
 enum vchiq_status
-vchiq_release_service(unsigned int handle)
+vchiq_release_service(struct vchiq_instance *instance, unsigned int handle)
 {
 	enum vchiq_status ret = VCHIQ_ERROR;
-	struct vchiq_service *service = find_service_by_handle(handle);
+	struct vchiq_service *service = find_service_by_handle(instance, handle);
 
 	if (service) {
 		ret = vchiq_release_internal(service->state, service);
