@@ -315,6 +315,7 @@ struct vchiq_slot_zero {
 };
 
 struct vchiq_state {
+	struct device *dev;
 	int id;
 	int initialised;
 	enum vchiq_connstate conn_state;
@@ -458,7 +459,7 @@ extern struct vchiq_slot_zero *
 vchiq_init_slots(void *mem_base, int mem_size);
 
 extern int
-vchiq_init_state(struct vchiq_state *state, struct vchiq_slot_zero *slot_zero);
+vchiq_init_state(struct vchiq_state *state, struct vchiq_slot_zero *slot_zero, struct device *dev);
 
 extern enum vchiq_status
 vchiq_connect_internal(struct vchiq_state *state, struct vchiq_instance *instance);
