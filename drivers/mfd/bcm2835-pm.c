@@ -28,6 +28,8 @@ static const struct mfd_cell bcm2835_power_devs[] = {
 static int bcm2835_pm_get_pdata(struct platform_device *pdev,
 				struct bcm2835_pm *pm)
 {
+	bool is_bcm2711 = of_device_is_compatible(pm->dev->of_node, "brcm,bcm2711-pm");
+
 	/* If no 'reg-names' property is found we can assume we're using old
 	 * firmware.
 	 */
@@ -39,6 +41,7 @@ static int bcm2835_pm_get_pdata(struct platform_device *pdev,
 			return PTR_ERR(pm->base);
 
 		pm->asb = devm_platform_ioremap_resource(pdev, 1);
+		pm->rpivid_asb = devm_platform_ioremap_resource(pdev, 2);
 	} else {
 		struct resource *res;
 
@@ -50,10 +53,27 @@ static int bcm2835_pm_get_pdata(struct platform_device *pdev,
 						    "asb");
 		if (res)
 			pm->asb = devm_ioremap_resource(&pdev->dev, res);
+
+		res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
+						    "rpivid_asb");
+		if (res)
+			pm->rpivid_asb = devm_ioremap_resource(&pdev->dev,
+								res);
 	}
 
 	if (IS_ERR(pm->asb))
 		pm->asb = NULL;
+
+	if (IS_ERR(pm->rpivid_asb))
+		pm->rpivid_asb = NULL;
+
+	/* Ensure that rpivid_asb is set only for BCM2711, so subsequent
+	 * driver can rely on this and don't get confused by broken DTB.
+	 */
+	if (pm->rpivid_asb && !is_bcm2711) {
+		dev_err(pm->dev, "Unexpected rpivid_asb register, please fix your DTB.\n");
+		return -EINVAL;
+	}
 
 	return 0;
 }
@@ -95,6 +115,7 @@ static int bcm2835_pm_probe(struct platform_device *pdev)
 static const struct of_device_id bcm2835_pm_of_match[] = {
 	{ .compatible = "brcm,bcm2835-pm-wdt", },
 	{ .compatible = "brcm,bcm2835-pm", },
+	{ .compatible = "brcm,bcm2711-pm", },
 	{},
 };
 MODULE_DEVICE_TABLE(of, bcm2835_pm_of_match);
