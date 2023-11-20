@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: GPL-2.0
+&{/soc} {
+	i2c0_mux: i2c0_mux {
+		compatible = "i2c-mux-pinctrl";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		i2c-parent = <&bsc0>;
+
+		pinctrl-names = "i2c0", "i2c_csi_dsi";
+		pinctrl-0 = <&i2c0_gpio0>;
+		pinctrl-1 = <&i2c0_gpio28>;
+
+		i2c0: i2c@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			pinctrl-0 = <&i2c0_gpio0>;
+		};
+
+		i2c_csi_dsi: i2c@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			pinctrl-1 = <&i2c0_gpio28>;
+		};
+	};
+
+};
+
+/ {
+	aliases {
+		i2c10 = &bsc0;
+		i2c0 = &i2c0;
+		i2c1 = &i2c1;
+		i2c4 = &i2c_csi_dsi;
+	};
+};

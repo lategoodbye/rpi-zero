@@ -336,7 +336,7 @@
 			status = "disabled";
 		};
 
-		i2c0: i2c@7e205000 {
+		bsc0: i2c@7e205000 {
 			compatible = "brcm,bcm2835-i2c";
 			reg = <0x7e205000 0x200>;
 			interrupts = <2 21>;

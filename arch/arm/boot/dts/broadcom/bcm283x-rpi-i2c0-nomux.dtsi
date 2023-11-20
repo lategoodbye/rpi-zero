@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0
+&bsc0 {
+	pinctrl-0 = <&i2c0_gpio0>;
+};
+
+/ {
+	aliases {
+		i2c0 = &bsc0;
+		i2c1 = &i2c1;
+	};
+};
