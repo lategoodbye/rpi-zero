@@ -151,9 +151,11 @@ static int pwm_gpio_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(gpwm->gpio),
 				     "could not get gpio\n");
 
-	if (gpiod_cansleep(gpwm->gpio))
+	if (gpiod_cansleep(gpwm->gpio)) {
 		return dev_err_probe(dev, -EINVAL,
-				     "sleeping GPIOs not supported\n");
+				     "sleeping GPIO %d not supported\n",
+				     desc_to_gpio(gpwm->gpio));
+	}
 
 	gpwm->chip.dev = dev;
 	gpwm->chip.ops = &pwm_gpio_ops;
