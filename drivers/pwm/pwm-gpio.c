@@ -193,4 +193,7 @@ static struct platform_driver pwm_gpio_driver = {
 
 module_platform_driver(pwm_gpio_driver);
 
+MODULE_DESCRIPTION("PWM GPIO driver");
+MODULE_ALIAS("platform:pwm-gpio");
+MODULE_AUTHOR("Vincent Whitchurch");
 MODULE_LICENSE("GPL v2");
