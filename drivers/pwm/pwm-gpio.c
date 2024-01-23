@@ -183,8 +183,8 @@ static void pwm_gpio_remove(struct platform_device *pdev)
 }
 
 static const struct of_device_id pwm_gpio_dt_ids[] = {
-	{ .compatible = "pwm-gpio", },
-	{ }
+	{ .compatible = "pwm-gpio" },
+	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, pwm_gpio_dt_ids);
 
