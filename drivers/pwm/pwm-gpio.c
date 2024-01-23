@@ -187,9 +187,9 @@ static void pwm_gpio_remove(struct platform_device *pdev)
 {
 	struct pwm_gpio *gpwm = platform_get_drvdata(pdev);
 
-	pwm_disable(&gpwm->chip.pwms[0]);
-
 	pwmchip_remove(&gpwm->chip);
+
+	hrtimer_cancel(&gpwm->gpio_timer);
 }
 
 static const struct of_device_id pwm_gpio_dt_ids[] = {
