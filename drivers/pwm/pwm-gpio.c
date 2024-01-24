@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (C) 2020 Axis Communications AB */
+/*
+ * Generic software PWM for modulating GPIOs
+ *
+ * Copyright (C) 2020 Axis Communications AB
+ * Copyright (C) 2020 Nicola Di Lieto
+ * Copyright (C) 2024 Stefan Wahren
+ */
 
 #include <linux/gpio/consumer.h>
 #include <linux/platform_device.h>
