@@ -229,7 +229,8 @@ config PWM_FSL_FTM
 
 config PWM_GPIO
 	tristate "GPIO PWM support"
-	depends on OF && GPIOLIB
+	depends on GPIOLIB
+	depends on HIGH_RES_TIMERS
 	help
 	  Generic PWM framework driver for a software PWM toggling a GPIO pin
 	  from kernel high-resolution timers.
