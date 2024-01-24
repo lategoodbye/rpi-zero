@@ -78,10 +78,17 @@ static int pwm_gpio_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 			  const struct pwm_state *state)
 {
 	struct pwm_gpio *gpwm = container_of(chip, struct pwm_gpio, chip);
+	bool invert = state->polarity == PWM_POLARITY_INVERSED;
 	unsigned long flags;
 
-	if (!state->enabled)
+	if (!state->enabled) {
 		hrtimer_cancel(&gpwm->hrtimer);
+	} else if (!gpwm->running) {
+		int ret = gpiod_direction_output(gpwm->gpio, invert);
+
+		if (ret)
+			return ret;
+	}
 
 	spin_lock_irqsave(&gpwm->lock, flags);
 
@@ -90,7 +97,7 @@ static int pwm_gpio_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 		gpwm->running = false;
 		gpwm->changing = false;
 
-		gpiod_set_value(gpwm->gpio, 0);
+		gpiod_set_value(gpwm->gpio, invert);
 	} else if (gpwm->running) {
 		gpwm->nextstate = *state;
 		gpwm->changing = true;
@@ -146,7 +153,7 @@ static int pwm_gpio_probe(struct platform_device *pdev)
 
 	spin_lock_init(&gpwm->lock);
 
-	gpwm->gpio = devm_gpiod_get(dev, NULL, GPIOD_OUT_LOW);
+	gpwm->gpio = devm_gpiod_get(dev, NULL, GPIOD_ASIS);
 	if (IS_ERR(gpwm->gpio))
 		return dev_err_probe(dev, PTR_ERR(gpwm->gpio),
 				     "could not get gpio\n");
