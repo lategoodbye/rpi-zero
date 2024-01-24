@@ -20,6 +20,12 @@
 		device_type = "memory";
 		reg = <0 0x40000000>;
 	};
+
+	pwm0 {
+		#pwm-cells = <2>;
+		compatible = "pwm-gpio";
+		gpios = <&gpio 26 GPIO_ACTIVE_HIGH>;
+	};
 };
 
 &bt {
@@ -134,7 +140,7 @@
 &pwm {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pwm0_gpio40 &pwm1_gpio41>;
-	status = "okay";
+	status = "disabled";
 };
 
 /* SDHOST is used to drive the SD card */
