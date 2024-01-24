@@ -19,10 +19,10 @@
 
 struct pwm_gpio {
 	struct pwm_chip chip;
-	struct hrtimer hrtimer;
+	struct hrtimer gpio_timer;
 	struct gpio_desc *gpio;
 	struct pwm_state state;
-	struct pwm_state nextstate;
+	struct pwm_state next_state;
 	spinlock_t lock;
 	bool changing;
 	bool running;
@@ -46,32 +46,33 @@ static unsigned long pwm_gpio_toggle(struct pwm_gpio *gpwm, bool level)
 	return level ? state->duty_cycle : state->period - state->duty_cycle;
 }
 
-static enum hrtimer_restart pwm_gpio_timer(struct hrtimer *hrtimer)
+static enum hrtimer_restart pwm_gpio_timer(struct hrtimer *gpio_timer)
 {
-	struct pwm_gpio *gpwm = container_of(hrtimer, struct pwm_gpio, hrtimer);
-	unsigned long nexttoggle;
+	struct pwm_gpio *gpwm = container_of(gpio_timer, struct pwm_gpio,
+					     gpio_timer);
+	unsigned long next_toggle;
 	unsigned long flags;
-	bool newlevel;
+	bool new_level;
 
 	spin_lock_irqsave(&gpwm->lock, flags);
 
 	/* Apply new state at end of current period */
 	if (!gpwm->level && gpwm->changing) {
 		gpwm->changing = false;
-		gpwm->state = gpwm->nextstate;
-		newlevel = !!gpwm->state.duty_cycle;
+		gpwm->state = gpwm->next_state;
+		new_level = !!gpwm->state.duty_cycle;
 	} else {
-		newlevel = !gpwm->level;
+		new_level = !gpwm->level;
 	}
 
-	nexttoggle = pwm_gpio_toggle(gpwm, newlevel);
-	if (nexttoggle)
-		hrtimer_forward(hrtimer, hrtimer_get_expires(hrtimer),
-				ns_to_ktime(nexttoggle));
+	next_toggle = pwm_gpio_toggle(gpwm, new_level);
+	if (next_toggle)
+		hrtimer_forward(gpio_timer, hrtimer_get_expires(gpio_timer),
+				ns_to_ktime(next_toggle));
 
 	spin_unlock_irqrestore(&gpwm->lock, flags);
 
-	return nexttoggle ? HRTIMER_RESTART : HRTIMER_NORESTART;
+	return next_toggle ? HRTIMER_RESTART : HRTIMER_NORESTART;
 }
 
 static int pwm_gpio_apply(struct pwm_chip *chip, struct pwm_device *pwm,
@@ -82,7 +83,7 @@ static int pwm_gpio_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 	unsigned long flags;
 
 	if (!state->enabled) {
-		hrtimer_cancel(&gpwm->hrtimer);
+		hrtimer_cancel(&gpwm->gpio_timer);
 	} else if (!gpwm->running) {
 		int ret = gpiod_direction_output(gpwm->gpio, invert);
 
@@ -99,17 +100,17 @@ static int pwm_gpio_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 
 		gpiod_set_value(gpwm->gpio, invert);
 	} else if (gpwm->running) {
-		gpwm->nextstate = *state;
+		gpwm->next_state = *state;
 		gpwm->changing = true;
 	} else {
-		unsigned long nexttoggle;
+		unsigned long next_toggle;
 
 		gpwm->state = *state;
 		gpwm->changing = false;
 
-		nexttoggle = pwm_gpio_toggle(gpwm, !!state->duty_cycle);
-		if (nexttoggle)
-			hrtimer_start(&gpwm->hrtimer, nexttoggle,
+		next_toggle = pwm_gpio_toggle(gpwm, !!state->duty_cycle);
+		if (next_toggle)
+			hrtimer_start(&gpwm->gpio_timer, next_toggle,
 				      HRTIMER_MODE_REL);
 	}
 
@@ -127,7 +128,7 @@ static int pwm_gpio_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 	spin_lock_irqsave(&gpwm->lock, flags);
 
 	if (gpwm->changing)
-		*state = gpwm->nextstate;
+		*state = gpwm->next_state;
 	else
 		*state = gpwm->state;
 
@@ -169,8 +170,8 @@ static int pwm_gpio_probe(struct platform_device *pdev)
 	gpwm->chip.base = pdev->id;
 	gpwm->chip.npwm = 1;
 
-	hrtimer_init(&gpwm->hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-	gpwm->hrtimer.function = pwm_gpio_timer;
+	hrtimer_init(&gpwm->gpio_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	gpwm->gpio_timer.function = pwm_gpio_timer;
 
 	ret = pwmchip_add(&gpwm->chip);
 	if (ret < 0)
