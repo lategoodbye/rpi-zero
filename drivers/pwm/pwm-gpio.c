@@ -7,15 +7,15 @@
  * Copyright (C) 2024 Stefan Wahren
  */
 
+#include <linux/device.h>
+#include <linux/err.h>
 #include <linux/gpio/consumer.h>
-#include <linux/platform_device.h>
-#include <linux/spinlock.h>
 #include <linux/hrtimer.h>
 #include <linux/module.h>
-#include <linux/slab.h>
+#include <linux/mod_devicetable.h>
+#include <linux/platform_device.h>
 #include <linux/pwm.h>
-#include <linux/err.h>
-#include <linux/of.h>
+#include <linux/spinlock.h>
 
 struct pwm_gpio {
 	struct pwm_chip chip;
